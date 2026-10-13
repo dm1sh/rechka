@@ -70,6 +70,11 @@
     <string name="onb_model_missing">В выбранной папке не хватает одного или нескольких нужных файлов.</string>
     <string name="onb_model_invalid">Один или несколько файлов повреждены или не соответствуют модели. Скачайте их заново.</string>
     <string name="onb_model_unreadable">Не удалось прочитать выбранную папку. Выберите её ещё раз.</string>
+    <string name="onb_model_checking">Проверяю установленную модель…</string>
+    <string name="onb_model_bundled_installing">Модель входит в этот APK. Устанавливаю её во внутреннее хранилище — это может занять около минуты.</string>
+    <string name="onb_model_bundled_failed">Не удалось установить модель из APK. Проверьте, что на устройстве достаточно свободного места, и попробуйте ещё раз.</string>
+    <string name="onb_model_retry">Повторить установку модели</string>
+    <string name="onb_model_outdated">Установленная модель не подходит к этой версии Речки. Установите поверх полную версию APK, чтобы обновить модель, либо выберите папку с нужными файлами ниже.</string>
     <string name="onb_welcome_title">Говорите свободно</string>
     <string name="onb_welcome_body">Превращаю речь в текст. Без интернета, без аккаунтов.</string>
     <string name="onb_welcome_note">Пара коротких шагов — и поехали.</string>

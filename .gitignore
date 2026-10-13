@@ -26,6 +26,8 @@ scripts/.env
 # Large native deps downloaded/built by scripts
 app/libs/*.aar
 app/src/main/assets/models/
+# GigaAM model downloaded by scripts/download-model.sh for the full APK
+models/
 .ffmpeg-src/
 ffmpeg-build/
 

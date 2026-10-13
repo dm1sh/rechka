@@ -34,17 +34,19 @@ jobs:
       - name: Build native FFmpeg resampler
         run: ./scripts/build-ffmpeg-swresample.sh
 
+      # Debug CI builds the light variant only; the full variant also needs
+      # the ~326 MB model download (see the release workflow).
       - name: Build debug APK
         # Run number is monotonic; the attempt component also makes a
         # manually re-run workflow produce a newer installable APK.
         run: |
           VERSION_CODE=$((19 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
-          ./gradlew --no-daemon assembleDebug -PversionCode="$VERSION_CODE"
+          ./gradlew --no-daemon assembleLightDebug -PversionCode="$VERSION_CODE"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: rechka-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/light/debug/app-light-debug.apk
           if-no-files-found: error
           retention-days: 14

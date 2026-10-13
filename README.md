@@ -89,9 +89,9 @@ SHA-256 файлов, скопирует только нужные файлы в
 
 - Минимальная версия Android: 13 (API 33)
 - Архитектура: `arm64-v8a`
-- Модель GigaAM v3 — около 326 МБ, устанавливается отдельно во внутреннее хранилище приложения
+- Модель GigaAM v3 — около 326 МБ; хранится во внутреннем хранилище приложения и загружается sherpa-onnx по обычным файловым путям
 - Silero VAD — около 629 КБ, зашит в APK
-- APK не содержит GigaAM-модель; после установки её нужно скачать с GitHub и выбрать папку с файлами в onboarding
+- Два взаимозаменяемых APK: `full` содержит GigaAM-модель и устанавливает/обновляет её при запуске, `light` модели не содержит и уже установленную не трогает
 - Разрешение `INTERNET` в манифесте **не заявлено** — сетевого стека у
   приложения нет; всё распознавание идёт на устройстве
 - Пакет: `ru.dm1sh.rechka`
@@ -115,33 +115,45 @@ echo "sdk.dir=/путь/к/android-sdk" > local.properties
 ./scripts/build-ffmpeg-swresample.sh
 ```
 
-Соберите отладочный APK:
+Соберите отладочный APK (лёгкий вариант, без модели):
 
 ```bash
-./gradlew --no-daemon assembleDebug
-adb install --user 0 -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew --no-daemon assembleLightDebug
+adb install --user 0 -r app/build/outputs/apk/light/debug/app-light-debug.apk
+```
+
+Для полного отладочного APK сначала скачайте и проверьте модель, затем
+соберите вариант `full`:
+
+```bash
+bash scripts/download-model.sh
+./gradlew --no-daemon assembleFullDebug
+# APK: app/build/outputs/apk/full/debug/app-full-debug.apk
 ```
 
 Отладочная сборка использует идентификатор приложения
 `ru.dm1sh.rechka.debug`, поэтому может быть установлена рядом с обычной
 `ru.dm1sh.rechka`. Рабочий процесс GitHub Actions подготавливает native runtime
-и ресемплер, затем собирает APK командой `assembleDebug` и публикует его как
-артефакт. Модель в APK не входит: её установка выполняется из onboarding уже
-на телефоне. Для каждой сборки CI вычисляет возрастающий код версии по формуле
-`19 + номер_запуска × 100 + номер_попытки`.
+и ресемплер, затем собирает лёгкий APK командой `assembleLightDebug` и
+публикует его как артефакт. Для каждой сборки CI вычисляет возрастающий
+код версии по формуле `19 + номер_запуска × 100 + номер_попытки`.
 
 ### Сборка релиза
 
 Релизная сборка запускается при отправке тега, начинающегося с `v`, либо вручную
 через GitHub Actions. Рабочий процесс требует секреты `RELEASE_KEYSTORE_BASE64`,
 `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS` и `RELEASE_KEY_PASSWORD`, создаёт
-конфигурацию подписи, подготавливает зависимости и выполняет:
+конфигурацию подписи, подготавливает зависимости (включая скачивание и
+SHA-256-проверку модели для полного APK) и одной командой с общим кодом
+версии собирает оба APK:
 
 ```bash
-./gradlew --no-daemon assembleRelease -PversionCode="$VERSION_CODE"
+./gradlew --no-daemon assembleLightRelease assembleFullRelease -PversionCode="$VERSION_CODE"
 ```
 
-После сборки рабочий процесс публикует подписанный APK и файл карты R8 в
+После сборки рабочий процесс проверяет, что модель есть только в полном
+APK, а пакет и код версии у обоих APK совпадают, затем публикует
+`rechka-light.apk`, `rechka-full.apk`, `SHA256SUMS.txt` и файлы карт R8 в
 артефактах, а также создаёт релиз GitHub для выбранного тега.
 
 ## Установка собранного APK вручную

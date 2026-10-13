@@ -36,6 +36,7 @@
             android:textAppearance="?attr/textAppearanceBodyLarge" />
 
         <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/modelFiles"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -47,6 +48,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:id="@+id/modelFolderWarning"
             android:text="@string/onb_model_folder_warning"
             android:textAppearance="?attr/textAppearanceBodyMedium"
             android:textColor="?attr/colorOnSurfaceVariant" />

@@ -1,4 +1,4 @@
-name: Build release APK
+name: Build release APKs
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.0.16
+        description: Release tag, for example v1.2.0
         required: true
         type: string
 
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build-release:
-    name: Build signed release APK
+    name: Build signed release APKs (light + full)
     runs-on: ubuntu-latest
 
     steps:
@@ -67,29 +67,71 @@ jobs:
       - name: Build native FFmpeg resampler
         run: ./scripts/build-ffmpeg-swresample.sh
 
-      - name: Build signed release APK
+      # Only the full APK packages the model; the script SHA-256-verifies it.
+      - name: Download GigaAM model for the full APK
+        run: bash scripts/download-model.sh
+
+      # Both variants are built in one invocation with one versionCode and
+      # one signing key, so users can replace one APK with the other without
+      # losing app data (including the installed model).
+      - name: Build signed light and full release APKs
         env:
           # Keep release builds monotonically versioned for upgrade installs.
           VERSION_CODE: ${{ github.run_number }}
-        run: ./gradlew --no-daemon assembleRelease -PversionCode="$VERSION_CODE"
+        run: |
+          ./gradlew --no-daemon assembleLightRelease assembleFullRelease \
+            -PversionCode="$VERSION_CODE"
 
-      - name: Upload release APK
+      - name: Package and verify release APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/light/release/app-light-release.apk dist/rechka-light.apk
+          cp app/build/outputs/apk/full/release/app-full-release.apk dist/rechka-full.apk
+
+          # The full APK must contain the model; the light APK must not.
+          for file in \
+            gigaam_v3_e2e_rnnt_encoder_int8.onnx \
+            gigaam_v3_e2e_rnnt_decoder.onnx \
+            gigaam_v3_e2e_rnnt_joint.onnx \
+            gigaam_v3_e2e_rnnt_tokens.txt; do
+            unzip -l dist/rechka-full.apk | grep -q "assets/$file" \
+              || { echo "Full APK is missing assets/$file"; exit 1; }
+            if unzip -l dist/rechka-light.apk | grep -q "assets/$file"; then
+              echo "Light APK must not contain assets/$file"; exit 1
+            fi
+          done
+
+          # Identical application id/versionCode/signing is what lets either
+          # APK replace the other; fail the release if they ever diverge.
+          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort | tail -n 1)"
+          light_id="$("$AAPT" dump badging dist/rechka-light.apk | grep -E '^package:')"
+          full_id="$("$AAPT" dump badging dist/rechka-full.apk | grep -E '^package:')"
+          echo "light: $light_id"
+          echo "full:  $full_id"
+          [ "$light_id" = "$full_id" ] || { echo "APK package/version mismatch"; exit 1; }
+          ls -la dist
+          (cd dist && sha256sum rechka-light.apk rechka-full.apk > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: rechka-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: rechka-release-apks
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload release mapping
+      - name: Upload release mappings
         uses: actions/upload-artifact@v4
         with:
           name: rechka-release-mapping
-          path: app/build/outputs/mapping/release/mapping.txt
+          path: |
+            app/build/outputs/mapping/lightRelease/mapping.txt
+            app/build/outputs/mapping/fullRelease/mapping.txt
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Create GitHub release and attach APK
+      - name: Create GitHub release and attach APKs
         env:
           GH_TOKEN: ${{ github.token }}
           MANUAL_TAG: ${{ inputs.tag }}
@@ -106,6 +148,8 @@ jobs:
           esac
 
           gh release create "$RELEASE_TAG" \
-            app/build/outputs/apk/release/app-release.apk \
+            dist/rechka-light.apk \
+            dist/rechka-full.apk \
+            dist/SHA256SUMS.txt \
             --title "$RELEASE_TAG" \
             --generate-notes

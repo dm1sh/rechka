@@ -14,11 +14,36 @@ val keystoreProps = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
-// CI supplies a monotonically increasing version code so every downloaded
-// debug APK can update the previous GitHub Actions build.
+// CI supplies one monotonically increasing version code to both distribution
+// variants so users can switch between them by installing either APK.
 val ciVersionCode = providers.gradleProperty("versionCode")
     .orNull
     ?.toIntOrNull()
+
+// The large model is downloaded locally/inside CI and is never committed.
+// scripts/download-model.sh verifies its SHA-256 before Gradle packages it.
+val bundledGigaAmFiles = mapOf(
+    "gigaam_v3_e2e_rnnt_encoder_int8.onnx" to 318_995_997L,
+    "gigaam_v3_e2e_rnnt_decoder.onnx" to 4_600_058L,
+    "gigaam_v3_e2e_rnnt_joint.onnx" to 2_712_896L,
+    "gigaam_v3_e2e_rnnt_tokens.txt" to 13_353L,
+)
+val bundledGigaAmDirectory = rootProject.file("models/gigaam-v3")
+val verifyBundledGigaAmModel by tasks.registering {
+    inputs.files(bundledGigaAmFiles.keys.map { File(bundledGigaAmDirectory, it) })
+    doLast {
+        val invalid = bundledGigaAmFiles.filter { (name, expectedSize) ->
+            val file = File(bundledGigaAmDirectory, name)
+            !file.isFile || file.length() != expectedSize
+        }.keys
+        if (invalid.isNotEmpty()) {
+            throw GradleException(
+                "Full APK requires verified GigaAM files in ${bundledGigaAmDirectory.path}. " +
+                    "Run `bash scripts/download-model.sh` first. Invalid/missing: ${invalid.joinToString()}"
+            )
+        }
+    }
+}
 
 android {
     namespace = "ru.dm1sh.rechka"
@@ -32,6 +57,26 @@ android {
         versionName = "1.2.0" + (ciVersionCode?.let { "+$it" } ?: "")
         ndk {
             abiFilters += "arm64-v8a"
+        }
+    }
+
+    flavorDimensions += "model"
+    productFlavors {
+        create("light") {
+            dimension = "model"
+            buildConfigField("boolean", "BUNDLED_MODEL", "false")
+        }
+        create("full") {
+            dimension = "model"
+            buildConfigField("boolean", "BUNDLED_MODEL", "true")
+        }
+    }
+
+    // For the full flavor, the verified source files downloaded by
+    // scripts/download-model.sh are packaged at the root of APK assets.
+    sourceSets {
+        getByName("full") {
+            assets.srcDir(bundledGigaAmDirectory)
         }
     }
 
@@ -85,6 +130,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("mergeFull") && name.endsWith("Assets")) {
+        dependsOn(verifyBundledGigaAmModel)
     }
 }
 
