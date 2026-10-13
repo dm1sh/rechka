@@ -19,7 +19,7 @@ object Prefs {
     // Version-suffixed so each release with new feature highlights re-shows
     // the card to existing users (their dismissal of the previous version's
     // card doesn't carry over). Bump the suffix when the card content changes.
-    private const val KEY_WHATS_NEW_HINT_DISMISSED = "whats_new_hint_dismissed_v1200"
+    private const val KEY_WHATS_NEW_HINT_DISMISSED = "whats_new_hint_dismissed_v121"
     private const val KEY_DICTIONARY = "dictionary_text"
     private const val KEY_DICTIONARY_ENABLED = "dictionary_enabled"
     private const val KEY_PAUSE_LENGTH = "pause_length"
@@ -185,9 +185,10 @@ object Prefs {
             .apply()
     }
 
-    // One-time "What's new in 1.0.4" card on the main screen. Once
-    // dismissed, never shown again. New users (post-onboarding) and
-    // upgrading users (skip onboarding) both see it once.
+    // One-time "What's new" card for the current release on the main
+    // screen. Once dismissed, never shown again for this version. New
+    // users (post-onboarding) and upgrading users (skip onboarding) both
+    // see it once.
     fun isWhatsNewHintDismissed(context: Context): Boolean =
         context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_WHATS_NEW_HINT_DISMISSED, false)

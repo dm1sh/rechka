@@ -175,10 +175,10 @@
 
     <!-- One-time "What's new" card for the current release. Shown on the
          main screen only after setup problems are cleared. -->
-    <string name="main_card_whats_new_title">Что нового в 1.2.0</string>
-    <string name="main_card_whats_new_line1">• Модель распознавания теперь скачивается отдельно от APK — приложение стало значительно меньше.</string>
-    <string name="main_card_whats_new_line2">• Пользовательский словарь и общие настройки диктовки работают во всех режимах.</string>
-    <string name="main_card_whats_new_line3">• Обновлён onboarding: модель, режимы и разрешения настраиваются последовательно.</string>
+    <string name="main_card_whats_new_title">Что нового в 1.2.1</string>
+    <string name="main_card_whats_new_line1">• Теперь Речку можно установить полным APK со встроенной моделью — скачивать модель отдельно не нужно.</string>
+    <string name="main_card_whats_new_line2">• Для обновлений есть лёгкий APK без модели: он ставится поверх полного и сохраняет модель и настройки.</string>
+    <string name="main_card_whats_new_line3">• Настройка голосовой клавиатуры больше не застревает на кнопке «Далее» после включения клавиатуры в настройках Android.</string>
 
     <string name="main_card_whats_new_dismiss">Понятно</string>
     <string name="main_needs_setup_sub">Несколько мелочей надо подкрутить — карточки ниже подскажут, что и где.</string>
