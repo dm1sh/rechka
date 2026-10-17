@@ -17,6 +17,15 @@ dm1sh; исходный проект и авторство оригинальн�
 - **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** — нативный ONNX-рантайм
 - **[Silero VAD](https://github.com/snakers4/silero-vad)** — офлайновый детектор речевой активности
 
+## Версия для Linux
+
+Для Linux есть родственный проект
+**[rechka-cli](https://github.com/dm1sh/rechka-cli)** — тот же офлайн-стек
+GigaAM v3 + sherpa-onnx + Silero VAD, но в виде командной строки:
+расшифровка файлов, фоновая диктовка с управлением через
+`rechka start` / `rechka stop` / `rechka toggle` и ввод текста через
+IBus/Fcitx5.
+
 ## Установка
 
 Подписанный APK можно скачать на странице
