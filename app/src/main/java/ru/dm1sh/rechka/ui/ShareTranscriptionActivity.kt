@@ -2,8 +2,11 @@ package ru.dm1sh.rechka.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentResolver
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -34,6 +37,8 @@ import kotlinx.coroutines.withContext
 class ShareTranscriptionActivity : AppCompatActivity() {
     companion object {
         private const val KEY_STATS_RECORDED = "share_stats_recorded"
+        // Decoded PCM and VAD segments are 16 kHz mono (see SpeechSegmenter).
+        private const val SAMPLE_RATE = 16_000
     }
 
     private lateinit var status: MaterialTextView
@@ -79,7 +84,7 @@ class ShareTranscriptionActivity : AppCompatActivity() {
             return
         }
         findViewById<MaterialTextView>(R.id.shareFileName).text =
-            uri.lastPathSegment ?: getString(R.string.share_transcription_audio_file)
+            resolveDisplayName(uri) ?: getString(R.string.share_transcription_audio_file)
         transcribe(uri)
     }
 
@@ -87,15 +92,21 @@ class ShareTranscriptionActivity : AppCompatActivity() {
         progress.isIndeterminate = true
         lifecycleScope.launch {
             try {
+                var speechMillisTotal = 0L
                 withContext(Dispatchers.IO) {
                     val transcriber = OfflineTranscriber.getInstance(this@ShareTranscriptionActivity)
                     val useVad = Prefs.isFileVadEnabled(this@ShareTranscriptionActivity)
                     val segmenter = if (useVad) SpeechSegmenter(this@ShareTranscriptionActivity) else null
                     val maxChunkSamples = 30 * 16_000
-
+                    // Total speech time across transcribed segments, fed into
+                    // the dictation-minutes counter together with the words
+                    // when the transcript completes. With VAD on, segments
+                    // are speech-only; with VAD off they are fixed chunks,
+                    // so this is the processed audio duration either way.
                     suspend fun transcribeSegments(segments: List<ShortArray>) {
                         for (segment in segments) {
                             if (segment.isEmpty()) continue
+                            speechMillisTotal += segment.size * 1000L / SAMPLE_RATE
                             val bytes = ByteArray(segment.size * 2)
                             for (i in segment.indices) {
                                 val sample = segment[i].toInt()
@@ -195,6 +206,7 @@ class ShareTranscriptionActivity : AppCompatActivity() {
                 } else {
                     if (!statsRecorded) {
                         StatsStore.addWords(applicationContext, StatsStore.countWords(transcript))
+                        StatsStore.addSpeechMillis(applicationContext, speechMillisTotal)
                         statsRecorded = true
                     }
                     status.text = getString(R.string.share_transcription_done)
@@ -225,6 +237,33 @@ class ShareTranscriptionActivity : AppCompatActivity() {
         // Updating TextView layout can otherwise reset the parent ScrollView's
         // viewport. Restore the exact position after the new layout is measured.
         shareScroll.post { shareScroll.scrollTo(scrollX, scrollY) }
+    }
+
+    /**
+     * Human-readable file name for the header. lastPathSegment is URI-encoded
+     * (and for shared files often embeds the whole encoded path, e.g.
+     * "file%3A%2F%2F%2Fstorage%2F..."), so prefer the provider's
+     * DISPLAY_NAME and fall back to the decoded tail of the path.
+     */
+    private fun resolveDisplayName(uri: Uri): String? {
+        if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
+            try {
+                contentResolver.query(
+                    uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                )?.use { cursor ->
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0 && cursor.moveToFirst()) {
+                        cursor.getString(index)?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.let { return it }
+                    }
+                }
+            } catch (_: Exception) {
+                // Provider refused or has no name — fall through to the path.
+            }
+        }
+        val decoded = Uri.decode(uri.lastPathSegment ?: uri.path ?: return null).trim()
+        return decoded.substringAfterLast('/').takeIf { it.isNotEmpty() }
     }
 
     private fun formatTime(micros: Long): String {

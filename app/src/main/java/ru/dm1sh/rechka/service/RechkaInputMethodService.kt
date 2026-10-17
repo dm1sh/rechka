@@ -630,6 +630,12 @@ class RechkaInputMethodService : InputMethodService() {
                 updateRecordButton()
                 recordButton.tooltipText = getString(R.string.ime_start)
             },
+            // Feed the "minutes of dictation" counter with pure speech time,
+            // exactly like the overlay bubble does. Without this callback the
+            // keyboard only ever contributed words, never seconds.
+            onSpeechMillis = { millis ->
+                StatsStore.addSpeechMillis(applicationContext, millis)
+            },
             useVad = true,
         )
     }

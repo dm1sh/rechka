@@ -5,7 +5,7 @@ import java.time.LocalDate
 
 /**
  * Usage counters stored in SharedPreferences. Cheap single-process increments —
- * all writes happen from the accessibility service, reads from MainActivity.
+ * writes happen from the recording/transcription paths, reads from MainActivity.
  *
  * Also tracks a "сегодня" counter that rolls over on the local date change.
  * Implementation is lazy: we don't need a midnight alarm, we just snap to
@@ -18,6 +18,14 @@ object StatsStore {
     private const val KEY_SECONDS = "stats_seconds_total"
     private const val KEY_WORDS_TODAY = "stats_words_today"
     private const val KEY_TODAY_DATE = "stats_today_date"
+
+    // Accumulates sub-second speech durations across all recording paths.
+    // Only whole seconds are stored (the UI shows minutes), but throwing
+    // away every <1s segment would lose all the «ага», «понятно», «нет»-style
+    // quick phrases and massively undercount chatty dictation. In-memory
+    // only: on process restart we lose at most 999 ms of remainder.
+    @Volatile
+    private var speechMillisRemainder: Long = 0L
 
     fun addWords(context: Context, count: Int) {
         if (count <= 0) return
@@ -40,6 +48,24 @@ object StatsStore {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val current = prefs.getLong(KEY_SECONDS, 0L)
         prefs.edit().putLong(KEY_SECONDS, current + seconds).apply()
+    }
+
+    /**
+     * Feeds one speech segment's duration (milliseconds) into the dictation
+     * time counter. Fractions of a second are accumulated across calls and
+     * only whole seconds reach [addSeconds], so short phrases are not lost
+     * to rounding. Used by the keyboard and file transcription (the overlay
+     * service accumulates the same way in its own field).
+     */
+    @Synchronized
+    fun addSpeechMillis(context: Context, millis: Long) {
+        if (millis <= 0L) return
+        speechMillisRemainder += millis
+        val whole = speechMillisRemainder / 1000L
+        if (whole > 0L) {
+            speechMillisRemainder -= whole * 1000L
+            addSeconds(context, whole)
+        }
     }
 
     fun getWords(context: Context): Long =
