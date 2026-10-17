@@ -18,6 +18,11 @@ class SpeechSegmenter(context: Context) : AutoCloseable {
         private const val WINDOW_SIZE = 512
         private const val MIN_TAIL_SAMPLES = SAMPLE_RATE / 4
         private const val MAX_TAIL_SAMPLES = SAMPLE_RATE * 60
+        // The VAD notices speech a little late, so its segment start can
+        // clip the first phonemes. The recognizer also gets the few
+        // windows just before the detected start (5 * 32 ms = 160 ms) —
+        // but never audio already sent with the previous segment.
+        private const val PRE_ROLL_SAMPLES = WINDOW_SIZE * 5
         private const val MODEL_ASSET = "silero_vad.onnx"
     }
 
@@ -40,6 +45,11 @@ class SpeechSegmenter(context: Context) : AutoCloseable {
     private var pendingCount = 0
     private val tail = ShortArray(MAX_TAIL_SAMPLES)
     private var tailCount = 0
+    // Absolute sample index just past the last emitted segment, and the
+    // total number of samples ever appended to the tail — together with
+    // tailCount they locate any recent position inside the tail buffer.
+    private var lastProcessedEnd = 0
+    private var appendedSamples = 0
 
     fun acceptPcm(input: ShortArray): List<ShortArray> {
         val result = ArrayList<ShortArray>()
@@ -72,8 +82,14 @@ class SpeechSegmenter(context: Context) : AutoCloseable {
         }
         vad.flush()
         drain(result)
-        if (result.isEmpty() && tailCount >= MIN_TAIL_SAMPLES) {
-            result += tail.copyOf(tailCount)
+        if (result.isEmpty()) {
+            // Raw fallback for a final phrase the VAD did not surface:
+            // only the part not already emitted as a segment.
+            val tailStart = appendedSamples - tailCount
+            val from = maxOf(lastProcessedEnd, tailStart)
+            if (appendedSamples - from >= MIN_TAIL_SAMPLES) {
+                result += tail.copyOfRange(from - tailStart, appendedSamples - tailStart)
+            }
         }
         tailCount = 0
         return result
@@ -86,12 +102,28 @@ class SpeechSegmenter(context: Context) : AutoCloseable {
             val pcm = ShortArray(segment.samples.size) {
                 (segment.samples[it] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
             }
-            if (pcm.isNotEmpty()) result += pcm
-            tailCount = 0
+            if (pcm.isNotEmpty()) {
+                // Pre-roll: prepend the windows just before the detected
+                // start, clamped to the previous segment's end.
+                val expandedStart = maxOf(segment.start - PRE_ROLL_SAMPLES, lastProcessedEnd)
+                val pre = tailSlice(expandedStart, segment.start)
+                result += if (pre.isNotEmpty()) pre + pcm else pcm
+                lastProcessedEnd = maxOf(lastProcessedEnd, segment.start + segment.samples.size)
+            }
         }
     }
 
+    /** Raw PCM from the tail buffer between absolute sample positions. */
+    private fun tailSlice(fromSample: Int, toSample: Int): ShortArray {
+        val tailStart = appendedSamples - tailCount
+        val from = maxOf(fromSample, tailStart)
+        val to = minOf(toSample, appendedSamples)
+        if (to <= from) return ShortArray(0)
+        return tail.copyOfRange(from - tailStart, to - tailStart)
+    }
+
     private fun appendTail(samples: ShortArray) {
+        appendedSamples += samples.size
         if (samples.size >= MAX_TAIL_SAMPLES) {
             samples.copyInto(tail, 0, samples.size - MAX_TAIL_SAMPLES, samples.size)
             tailCount = MAX_TAIL_SAMPLES

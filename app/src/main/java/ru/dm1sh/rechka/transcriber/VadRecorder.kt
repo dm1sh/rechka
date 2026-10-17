@@ -43,6 +43,11 @@ class VadRecorder(private val context: Context) {
         // 0.25s minimum matches minSpeechDuration; 60s cap matches maxSpeechDuration.
         private const val MIN_TAIL_BYTES = SAMPLE_RATE * 2 / 4           //  0.25s
         private const val MAX_TAIL_BYTES = SAMPLE_RATE * 2 * 60          // 60s
+        // The VAD notices speech a little late, so its segment start can
+        // clip the first phonemes. The recognizer also gets the few
+        // windows just before the detected start (5 * 32 ms = 160 ms) —
+        // but never audio already sent with the previous segment.
+        private const val PRE_ROLL_SAMPLES = VAD_WINDOW_SIZE * 5
         // After the user taps stop we keep the mic running for a short linger so
         // the tail end of a word they spoke while tapping still reaches VAD
         // instead of being sliced off. Tuned at 250ms: long enough for the
@@ -242,15 +247,36 @@ class VadRecorder(private val context: Context) {
                 }
 
                 val pcmWindow = ByteArray(windowBytes)
-                // Raw PCM captured since the last VAD segment boundary. Acts as a
-                // safety-net if the user stops recording mid-utterance and VAD's
-                // internal buffer has already been partially drained by flush().
+                // Recent raw PCM (capped at 60s). Source of the pre-roll
+                // windows prepended to VAD segments, and a safety-net if
+                // the user stops recording mid-utterance and VAD's internal
+                // buffer has already been partially drained by flush().
                 val tailBuffer = ByteArrayOutputStream()
                 var segmentsEmitted = 0
+                // Absolute sample positions for pre-roll bookkeeping:
+                // which sample the tail buffer starts at, and where the
+                // last emitted segment ended (pre-roll must not cross
+                // that point).
+                var tailStartSample = 0L
+                var lastProcessedEnd = 0L
                 // Tracks isSpeechDetected() across windows so we only emit
                 // edge events to onSpeechActive (start of speech, end of
                 // speech). Initial false matches VAD's post-reset state.
                 var prevSpeechDetected = false
+
+                // Raw PCM bytes from the tail buffer between absolute
+                // sample positions (clamped to what the tail still holds).
+                fun tailSliceBytes(fromSample: Long, toSample: Long): ByteArray {
+                    val all = tailBuffer.toByteArray()
+                    val tailEndSample = tailStartSample + all.size / 2
+                    val from = maxOf(fromSample, tailStartSample)
+                    val to = minOf(toSample, tailEndSample)
+                    if (to <= from) return ByteArray(0)
+                    return all.copyOfRange(
+                        ((from - tailStartSample) * 2).toInt(),
+                        ((to - tailStartSample) * 2).toInt()
+                    )
+                }
 
                 fun drainVadQueue() {
                     while (!vad.empty()) {
@@ -263,13 +289,24 @@ class VadRecorder(private val context: Context) {
                             bb.putShort((s * 32767f).toInt().coerceIn(-32768, 32767).toShort())
                         }
 
-                        if (!segmentChannel.trySend(segPcm).isSuccess) {
+                        // Pre-roll: prepend the windows just before the
+                        // detected start, clamped to the previous
+                        // segment's end so nothing is recognized twice.
+                        // The tail is NOT reset any more — later segments
+                        // may still need it as their pre-roll.
+                        val segStart = segment.start.toLong()
+                        val segEnd = segStart + segment.samples.size
+                        val pre = tailSliceBytes(
+                            maxOf(segStart - PRE_ROLL_SAMPLES, lastProcessedEnd),
+                            segStart
+                        )
+                        val outPcm = if (pre.isNotEmpty()) pre + segPcm else segPcm
+
+                        if (!segmentChannel.trySend(outPcm).isSuccess) {
                             Log.w(TAG, "Segment queue full — dropping segment (transcriber too slow)")
                         }
-                        // A VAD segment = silence confirmed, so whatever we captured up
-                        // to now is safely in the transcriber pipeline. Drop the tail.
-                        tailBuffer.reset()
                         segmentsEmitted++
+                        if (segEnd > lastProcessedEnd) lastProcessedEnd = segEnd
 
                         // Report this segment's duration in milliseconds. Short
                         // phrases (~700ms «ага») would round to 0 seconds and
@@ -302,11 +339,11 @@ class VadRecorder(private val context: Context) {
                         if (tailBuffer.size() + windowBytes > MAX_TAIL_BYTES) {
                             // Cap memory usage — drop oldest half of tail. In practice
                             // VAD will cut before this on any natural speech.
-                            val trimmed = tailBuffer.toByteArray().copyOfRange(
-                                tailBuffer.size() / 2, tailBuffer.size()
-                            )
+                            val all = tailBuffer.toByteArray()
+                            val trimmed = all.copyOfRange(all.size / 2, all.size)
                             tailBuffer.reset()
                             tailBuffer.write(trimmed)
+                            tailStartSample += (all.size - trimmed.size) / 2
                         }
                         tailBuffer.write(pcmWindow, 0, windowBytes)
 
@@ -349,15 +386,24 @@ class VadRecorder(private val context: Context) {
                     // If flush didn't surface a segment and we captured enough audio
                     // since the last boundary, send the raw tail as a fallback so the
                     // user's last phrase always lands in the pipeline.
-                    val tailMs = tailBuffer.size() / 32
-                    if (segmentsEmitted == beforeFlush && tailBuffer.size() >= MIN_TAIL_BYTES) {
-                        Log.i(TAG, "VAD produced no tail segment — sending raw PCM fallback (${tailBuffer.size()} bytes / ~${tailMs}ms)")
-                        val fallback = tailBuffer.toByteArray()
+                    // Only the not-yet-emitted part of the tail may be
+                    // used as the fallback — earlier segments are already
+                    // in the transcriber pipeline.
+                    val tailEndSample = tailStartSample + tailBuffer.size() / 2
+                    val fallbackFrom = maxOf(lastProcessedEnd, tailStartSample)
+                    val fallbackBytes = ((tailEndSample - fallbackFrom) * 2).toInt()
+                    val tailMs = fallbackBytes / 32
+                    if (segmentsEmitted == beforeFlush && fallbackBytes >= MIN_TAIL_BYTES) {
+                        Log.i(TAG, "VAD produced no tail segment — sending raw PCM fallback (${fallbackBytes} bytes / ~${tailMs}ms)")
+                        val all = tailBuffer.toByteArray()
+                        val fallback = all.copyOfRange(
+                            ((fallbackFrom - tailStartSample) * 2).toInt(), all.size
+                        )
                         if (!segmentChannel.trySend(fallback).isSuccess) {
                             Log.w(TAG, "Fallback segment could not be queued — dropped")
                         }
                     } else if (segmentsEmitted == beforeFlush) {
-                        Log.w(TAG, "Tail below MIN threshold (${tailBuffer.size()} bytes / ~${tailMs}ms) — nothing to transcribe")
+                        Log.w(TAG, "Tail below MIN threshold (${fallbackBytes} bytes / ~${tailMs}ms) — nothing to transcribe")
                     }
                     tailBuffer.reset()
                     segmentChannel.close()
