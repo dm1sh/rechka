@@ -175,10 +175,10 @@
 
     <!-- One-time "What's new" card for the current release. Shown on the
          main screen only after setup problems are cleared. -->
-    <string name="main_card_whats_new_title">Что нового в 1.2.1</string>
-    <string name="main_card_whats_new_line1">• Теперь Речку можно установить полным APK со встроенной моделью — скачивать модель отдельно не нужно.</string>
-    <string name="main_card_whats_new_line2">• Для обновлений есть лёгкий APK без модели: он ставится поверх полного и сохраняет модель и настройки.</string>
-    <string name="main_card_whats_new_line3">• Настройка голосовой клавиатуры больше не застревает на кнопке «Далее» после включения клавиатуры в настройках Android.</string>
+    <string name="main_card_whats_new_title">Что нового в 1.2.2</string>
+    <string name="main_card_whats_new_line1">• Время диктовки в статистике теперь считается и для голосовой клавиатуры, а не только для плавающего микрофона.</string>
+    <string name="main_card_whats_new_line2">• Расшифровка аудиофайлов тоже добавляет время в статистику — по длительности распознанных фрагментов.</string>
+    <string name="main_card_whats_new_line3">• В окне расшифровки файла показывается его обычное имя вместо технического адреса вида file%3A%2F…</string>
 
     <string name="main_card_whats_new_dismiss">Понятно</string>
     <string name="main_needs_setup_sub">Несколько мелочей надо подкрутить — карточки ниже подскажут, что и где.</string>
