@@ -1,7 +1,9 @@
 package ru.dm1sh.rechka.service
 
+import android.content.ContextParams
 import android.content.Intent
 import android.media.AudioFormat
+import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.speech.RecognitionService
@@ -54,6 +56,22 @@ class RechkaRecognitionService : RecognitionService() {
             RecognizerIntent.EXTRA_AUDIO_SOURCE, ParcelFileDescriptor::class.java,
         )
         if (supplied != null) {
+            // Declare that this service takes over responsibility for the
+            // session's audio. RecognitionService.dispatchStartListening() runs
+            // two checks: supplying EXTRA_AUDIO_SOURCE skips only the first;
+            // the second, checkPermissionAndStartDataDelivery(), passes without
+            // a RECORD_AUDIO grant only when the service has created an
+            // attribution context for the caller. Without it every
+            // supplied-audio session is answered with
+            // ERROR_INSUFFICIENT_PERMISSIONS (9). createContext() only flips
+            // that flag (synchronously, on this looper, before the check that
+            // follows onStartListening); it never opens the mic, so neither
+            // side needs RECORD_AUDIO for this path. Scoped to a real
+            // descriptor: gating on hasExtra() instead would arm the bypass
+            // for a junk extra while the session falls through to the mic.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                declareCallerAudio(listener)
+            }
             val source = describe(supplied, intent)
             if (source == null) {
                 try {
@@ -94,6 +112,23 @@ class RechkaRecognitionService : RecognitionService() {
             },
             useVad = true,
         )
+    }
+
+    /**
+     * Creates the attribution context that RecognitionService requires before it
+     * lets a supplied-audio session deliver data. Best-effort: on an API level or
+     * ROM without the API the session proceeds and the framework check decides.
+     */
+    private fun declareCallerAudio(listener: Callback) {
+        try {
+            createContext(
+                ContextParams.Builder()
+                    .setNextAttributionSource(listener.callingAttributionSource)
+                    .build()
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "attribution context not created", t)
+        }
     }
 
     /**
