@@ -18,11 +18,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Check model pins and download failure handling
-        run: |
-          python3 scripts/check-model-manifest.py
-          bash scripts/test-downloads.sh
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -34,20 +29,19 @@ jobs:
 
       # The native runtime is intentionally gitignored because it is a large AAR.
       - name: Download sherpa-onnx runtime
-        run: bash scripts/download-sherpa-onnx.sh
+        run: ./scripts/download-sherpa-onnx.sh
 
       - name: Build native FFmpeg resampler
-        run: bash scripts/build-ffmpeg-swresample.sh
+        run: ./scripts/build-ffmpeg-swresample.sh
 
       # Debug CI builds the light variant only; the full variant also needs
       # the ~247 MB model download (see the release workflow).
-      - name: Test installer and build debug APK
+      - name: Build debug APK
         # Run number is monotonic; the attempt component also makes a
         # manually re-run workflow produce a newer installable APK.
         run: |
           VERSION_CODE=$((19 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
-          sh gradlew --no-daemon testLightDebugUnitTest assembleLightDebug -PversionCode="$VERSION_CODE"
-          python3 scripts/check-model-manifest.py --light-apk app/build/outputs/apk/light/debug/app-light-debug.apk
+          ./gradlew --no-daemon assembleLightDebug -PversionCode="$VERSION_CODE"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

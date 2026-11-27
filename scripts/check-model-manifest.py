@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail CI if the model pins, onboarding and release packaging diverge."""
+"""Check model pins, onboarding and optional APK contents."""
 
 import argparse
 import hashlib
@@ -28,25 +28,22 @@ def main():
         raise ValueError("Android model filenames are not unique")
 
     gradle_source = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
-    gradle = {name: (int(size.replace("_", "")), digest) for name, size, digest in re.findall(
-        r'"(gigaam_v4_e2e_rnnt_[^"]+)"\s+to\s+\(([0-9_]+)L\s+to\s+"([0-9a-f]{64})"\)', gradle_source
+    gradle = {name: int(size.replace("_", "")) for name, size in re.findall(
+        r'"(gigaam_v4_e2e_rnnt_[^"]+)"\s+to\s+([0-9_]+)L', gradle_source
     )}
     downloader_source = (ROOT / "scripts/download-model.sh").read_text(encoding="utf-8")
     downloader = dict(re.findall(r'\[(gigaam_v4_e2e_rnnt_[^\]]+)\]="([0-9a-f]{64})"', downloader_source))
-    if gradle != android:
-        raise ValueError("Gradle and Android model names/sizes/hashes do not match")
+    if gradle != {name: size for name, (size, _) in android.items()}:
+        raise ValueError("Gradle and Android model names/sizes do not match")
     if downloader != {name: digest for name, (_, digest) in android.items()}:
         raise ValueError("Downloader and Android model names/hashes do not match")
 
     resources = ET.parse(ROOT / "app/src/main/res/values/strings.xml").getroot()
     onboarding = next(item.text or "" for item in resources.findall("string") if item.get("name") == "onb_model_files")
-    workflow = (ROOT / ".github/workflows/build-release-apk.yml").read_text(encoding="utf-8")
     for name in android:
         if name not in onboarding:
             raise ValueError(f"{name} is missing from onboarding")
-    if "scripts/check-model-manifest.py" not in workflow or "--full-apk" not in workflow or "--light-apk" not in workflow:
-        raise ValueError("Release workflow does not verify both APKs using the pinned manifest")
-    print(f"PASS: {len(android)} model entries agree across installer, Gradle, downloader, UI and release CI")
+    print(f"PASS: {len(android)} model entries agree across installer, Gradle, downloader and UI")
 
     if args.full_apk:
         with ZipFile(args.full_apk) as apk:

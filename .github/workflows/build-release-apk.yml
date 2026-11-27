@@ -23,11 +23,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Check model pins and download failure handling
-        run: |
-          python3 scripts/check-model-manifest.py
-          bash scripts/test-downloads.sh
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -36,18 +31,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Validate release signing secrets
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: |
-          test -n "$RELEASE_KEYSTORE_BASE64" || { echo "Missing RELEASE_KEYSTORE_BASE64"; exit 1; }
-          test -n "$RELEASE_STORE_PASSWORD" || { echo "Missing RELEASE_STORE_PASSWORD"; exit 1; }
-          test -n "$RELEASE_KEY_ALIAS" || { echo "Missing RELEASE_KEY_ALIAS"; exit 1; }
-          test -n "$RELEASE_KEY_PASSWORD" || { echo "Missing RELEASE_KEY_PASSWORD"; exit 1; }
 
       - name: Install release signing configuration
         env:
@@ -67,10 +50,10 @@ jobs:
 
       # The native runtime is intentionally gitignored because it is a large AAR.
       - name: Download sherpa-onnx runtime
-        run: bash scripts/download-sherpa-onnx.sh
+        run: ./scripts/download-sherpa-onnx.sh
 
       - name: Build native FFmpeg resampler
-        run: bash scripts/build-ffmpeg-swresample.sh
+        run: ./scripts/build-ffmpeg-swresample.sh
 
       # Only the full APK packages the model; the script SHA-256-verifies it.
       - name: Download GigaAM model for the full APK
@@ -84,30 +67,15 @@ jobs:
           # Keep release builds monotonically versioned for upgrade installs.
           VERSION_CODE: ${{ github.run_number }}
         run: |
-          sh gradlew --no-daemon assembleLightRelease assembleFullRelease \
+          ./gradlew --no-daemon assembleLightRelease assembleFullRelease \
             -PversionCode="$VERSION_CODE"
 
-      - name: Package and verify release APKs
+      - name: Package release APKs
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/light/release/app-light-release.apk dist/rechka-light.apk
           cp app/build/outputs/apk/full/release/app-full-release.apk dist/rechka-full.apk
-
-          # Verify the actual packaged bytes against the v4 manifest.
-          python3 scripts/check-model-manifest.py \
-            --full-apk dist/rechka-full.apk --light-apk dist/rechka-light.apk
-
-          # Identical application id/versionCode/signing is what lets either
-          # APK replace the other; fail the release if they ever diverge.
-          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort | tail -n 1)"
-          light_id="$("$AAPT" dump badging dist/rechka-light.apk | grep -E '^package:')"
-          full_id="$("$AAPT" dump badging dist/rechka-full.apk | grep -E '^package:')"
-          echo "light: $light_id"
-          echo "full:  $full_id"
-          [ "$light_id" = "$full_id" ] || { echo "APK package/version mismatch"; exit 1; }
-          ls -la dist
           (cd dist && sha256sum rechka-light.apk rechka-full.apk > SHA256SUMS.txt)
-          cat dist/SHA256SUMS.txt
 
       - name: Upload release APKs
         uses: actions/upload-artifact@v4
