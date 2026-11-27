@@ -23,6 +23,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Check model pins and download failure handling
+        run: |
+          python3 scripts/check-model-manifest.py
+          bash scripts/test-downloads.sh
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -62,10 +67,10 @@ jobs:
 
       # The native runtime is intentionally gitignored because it is a large AAR.
       - name: Download sherpa-onnx runtime
-        run: ./scripts/download-sherpa-onnx.sh
+        run: bash scripts/download-sherpa-onnx.sh
 
       - name: Build native FFmpeg resampler
-        run: ./scripts/build-ffmpeg-swresample.sh
+        run: bash scripts/build-ffmpeg-swresample.sh
 
       # Only the full APK packages the model; the script SHA-256-verifies it.
       - name: Download GigaAM model for the full APK
@@ -79,7 +84,7 @@ jobs:
           # Keep release builds monotonically versioned for upgrade installs.
           VERSION_CODE: ${{ github.run_number }}
         run: |
-          ./gradlew --no-daemon assembleLightRelease assembleFullRelease \
+          sh gradlew --no-daemon assembleLightRelease assembleFullRelease \
             -PversionCode="$VERSION_CODE"
 
       - name: Package and verify release APKs
@@ -88,18 +93,9 @@ jobs:
           cp app/build/outputs/apk/light/release/app-light-release.apk dist/rechka-light.apk
           cp app/build/outputs/apk/full/release/app-full-release.apk dist/rechka-full.apk
 
-          # The full APK must contain the model; the light APK must not.
-          for file in \
-            gigaam_v3_e2e_rnnt_encoder_int8.onnx \
-            gigaam_v3_e2e_rnnt_decoder.onnx \
-            gigaam_v3_e2e_rnnt_joint.onnx \
-            gigaam_v3_e2e_rnnt_tokens.txt; do
-            unzip -l dist/rechka-full.apk | grep -q "assets/$file" \
-              || { echo "Full APK is missing assets/$file"; exit 1; }
-            if unzip -l dist/rechka-light.apk | grep -q "assets/$file"; then
-              echo "Light APK must not contain assets/$file"; exit 1
-            fi
-          done
+          # Verify the actual packaged bytes against the v4 manifest.
+          python3 scripts/check-model-manifest.py \
+            --full-apk dist/rechka-full.apk --light-apk dist/rechka-light.apk
 
           # Identical application id/versionCode/signing is what lets either
           # APK replace the other; fail the release if they ever diverge.

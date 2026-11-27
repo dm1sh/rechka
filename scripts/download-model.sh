@@ -1,56 +1,53 @@
 #!/usr/bin/env bash
-# Downloads GigaAM v3 ONNX model files into models/gigaam-v3/ for local
-# inspection or packaging into a user-selected folder. Models are not APK assets.
-# Total ~327 MB, gitignored — too large for regular git but served via GitHub Release.
-# Files are verified by SHA-256 so a truncated or tampered download fails loud.
+# Download Phone Whisper's full-context GigaAM v4 E2E RNN-T conversion for the
+# full APK. These four files total about 247 MB and are deliberately gitignored.
+# A temporary file is verified before replacing any existing artifact.
 set -euo pipefail
 
-RELEASE_TAG="model-gigaam-v3"
-# The large model release is still hosted in the upstream repository. Keep the
-# repository configurable so it can move to Rechka without changing this script.
-MODEL_REPOSITORY="${GIGAAM_MODEL_REPOSITORY:-amidexe/govorun-lite}"
-BASE_URL="https://github.com/${MODEL_REPOSITORY}/releases/download/${RELEASE_TAG}"
-MODEL_REPOSITORY="${GIGAAM_MODEL_REPOSITORY:-amidexe/govorun-lite}"
-BASE_URL="https://github.com/${MODEL_REPOSITORY}/releases/download/${RELEASE_TAG}"
-DEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/models/gigaam-v3"
-
+RELEASE_TAG="models-gigaam-v4"
+MODEL_REPOSITORY="${GIGAAM_MODEL_REPOSITORY:-ivkiwi/phone-whisper}"
+BASE_URL="${GIGAAM_MODEL_BASE_URL:-https://github.com/${MODEL_REPOSITORY}/releases/download/${RELEASE_TAG}}"
+DEST_DIR="${GIGAAM_MODEL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/models/gigaam-v4}"
 mkdir -p "${DEST_DIR}"
 
-# Pinned SHA-256 hashes — must match the files published under the release tag above.
+FILES=(
+  gigaam_v4_e2e_rnnt_encoder_int8.onnx
+  gigaam_v4_e2e_rnnt_decoder.onnx
+  gigaam_v4_e2e_rnnt_joint.onnx
+  gigaam_v4_e2e_rnnt_tokens.txt
+)
 declare -A SHA256=(
-  [gigaam_v3_e2e_rnnt_decoder.onnx]="781971998e6a355d6a714f6932a30eab295e7ba0d14fd7e0f78c83b87e811860"
-  [gigaam_v3_e2e_rnnt_encoder_int8.onnx]="2cac62d0c270bd128f898f2be1a2d34780d524a6e9483888ebac7b00f97410f1"
-  [gigaam_v3_e2e_rnnt_joint.onnx]="602ff7017a93311aad34df1437c8d7f49911353c13d6eae7a6ee7b041339465c"
-  [gigaam_v3_e2e_rnnt_tokens.txt]="7ddf22514c42c531358182c81446a8159771e9921019f09ae743ea622d40221d"
+  [gigaam_v4_e2e_rnnt_encoder_int8.onnx]="55a182f536b0c61eb1bb67214600967858ba4646fb68fe3bcb70549029a65ad8"
+  [gigaam_v4_e2e_rnnt_decoder.onnx]="f665598c4e271dfe1641106751bf895dc02517c4ff98a35a2c2a7f2b6b990e17"
+  [gigaam_v4_e2e_rnnt_joint.onnx]="0d7888efb5cc6a07d04c4bbe9a5fe87951d16abf687bc11fdfb2046cae753228"
+  [gigaam_v4_e2e_rnnt_tokens.txt]="4af4f59269ff664ea6a55838b12fa0cb5e07bd5e019202b4d38b3fbc9275e923"
 )
 
 check_hash() {
-  local file="$1" expected="$2"
   local actual
-  actual="$(sha256sum "${file}" | awk '{print $1}')"
-  [[ "${actual}" == "${expected}" ]]
+  actual="$(sha256sum "$1" | awk '{print $1}')"
+  [[ "${actual}" == "$2" ]]
 }
 
-for filename in "${!SHA256[@]}"; do
+tmp=""
+trap '[[ -z "${tmp}" ]] || rm -f -- "${tmp}"' EXIT
+for filename in "${FILES[@]}"; do
   dest="${DEST_DIR}/${filename}"
   expected="${SHA256[${filename}]}"
-
   if [[ -f "${dest}" ]] && check_hash "${dest}" "${expected}"; then
     echo "OK     ${filename}"
     continue
   fi
 
   echo "Fetch  ${filename}"
-  curl -fL --progress-bar -o "${dest}" "${BASE_URL}/${filename}"
-
-  if ! check_hash "${dest}" "${expected}"; then
-    actual="$(sha256sum "${dest}" | awk '{print $1}')"
-    echo "SHA-256 mismatch for ${filename}" >&2
-    echo "  expected ${expected}" >&2
-    echo "  got      ${actual}" >&2
-    rm -f "${dest}"
+  tmp="$(mktemp "${DEST_DIR}/.${filename}.part.XXXXXX")"
+  curl --fail --location --retry 3 --progress-bar -o "${tmp}" "${BASE_URL}/${filename}"
+  if ! check_hash "${tmp}" "${expected}"; then
+    echo "SHA-256 mismatch for ${filename}; existing file was not replaced" >&2
     exit 1
   fi
+  mv -f -- "${tmp}" "${dest}"
+  tmp=""
   echo "OK     ${filename}"
 done
 

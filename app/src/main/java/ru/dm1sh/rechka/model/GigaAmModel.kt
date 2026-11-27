@@ -6,116 +6,113 @@ import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import ru.dm1sh.rechka.BuildConfig
 import java.io.File
-import java.io.InputStream
-import java.security.MessageDigest
 import kotlin.concurrent.thread
 
-/** GigaAM v3 files installed in the app-private directory used by sherpa-onnx. */
+/** Phone Whisper's full-context GigaAM v4 E2E RNN-T conversion for sherpa-onnx. */
 object GigaAmModel {
-    const val ENCODER = "gigaam_v3_e2e_rnnt_encoder_int8.onnx"
-    const val DECODER = "gigaam_v3_e2e_rnnt_decoder.onnx"
-    const val JOINER = "gigaam_v3_e2e_rnnt_joint.onnx"
-    const val TOKENS = "gigaam_v3_e2e_rnnt_tokens.txt"
-
-    data class ModelFile(val name: String, val sizeBytes: Long, val sha256: String)
+    const val ENCODER = "gigaam_v4_e2e_rnnt_encoder_int8.onnx"
+    const val DECODER = "gigaam_v4_e2e_rnnt_decoder.onnx"
+    const val JOINER = "gigaam_v4_e2e_rnnt_joint.onnx"
+    const val TOKENS = "gigaam_v4_e2e_rnnt_tokens.txt"
 
     enum class InstallState { CHECKING, INSTALLING, READY, MISSING, OUTDATED, FAILED }
     enum class CopyResult { SUCCESS, MISSING, INVALID, UNREADABLE }
 
     private const val TAG = "GigaAmModel"
-    private const val INSTALL_DIR = "gigaam-v3-e2e-rnnt"
-    private const val STAGING_DIR = ".gigaam-v3-e2e-rnnt.new"
-    private const val BACKUP_DIR = ".gigaam-v3-e2e-rnnt.old"
-    private const val VERSION_MARKER = ".model-version"
-    private const val COPY_BUFFER_SIZE = 1024 * 1024
+    private const val INSTALL_DIR = "gigaam-v4-e2e-rnnt"
+    private const val STAGING_DIR = ".gigaam-v4-e2e-rnnt.new"
+    private const val BACKUP_DIR = ".gigaam-v4-e2e-rnnt.old"
+    private val legacyDirectories = listOf(
+        "gigaam-v3-e2e-rnnt", ".gigaam-v3-e2e-rnnt.new", ".gigaam-v3-e2e-rnnt.old"
+    )
 
+    // Pinned to https://github.com/ivkiwi/phone-whisper/releases/tag/models-gigaam-v4
     val FILES = listOf(
-        ModelFile(ENCODER, 318_995_997L, "2cac62d0c270bd128f898f2be1a2d34780d524a6e9483888ebac7b00f97410f1"),
-        ModelFile(DECODER, 4_600_058L, "781971998e6a355d6a714f6932a30eab295e7ba0d14fd7e0f78c83b87e811860"),
-        ModelFile(JOINER, 2_712_896L, "602ff7017a93311aad34df1437c8d7f49911353c13d6eae7a6ee7b041339465c"),
-        ModelFile(TOKENS, 13_353L, "7ddf22514c42c531358182c81446a8159771e9921019f09ae743ea622d40221d"),
+        ModelFile(ENCODER, 239_885_452L, "55a182f536b0c61eb1bb67214600967858ba4646fb68fe3bcb70549029a65ad8"),
+        ModelFile(DECODER, 4_600_129L, "f665598c4e271dfe1641106751bf895dc02517c4ff98a35a2c2a7f2b6b990e17"),
+        ModelFile(JOINER, 2_712_897L, "0d7888efb5cc6a07d04c4bbe9a5fe87951d16abf687bc11fdfb2046cae753228"),
+        ModelFile(TOKENS, 9_982L, "4af4f59269ff664ea6a55838b12fa0cb5e07bd5e019202b4d38b3fbc9275e923"),
     )
 
     @Volatile
     var installState: InstallState = InstallState.CHECKING
         private set
 
-    val isBundledVariant: Boolean
-        get() = BuildConfig.BUNDLED_MODEL
+    val isBundledVariant: Boolean get() = BuildConfig.BUNDLED_MODEL
 
-    @Volatile
-    private var initializationStarted = false
-
-    private val modelFingerprint: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        val manifest = FILES.joinToString(separator = "\n") {
-            "${it.name}:${it.sizeBytes}:${it.sha256}"
-        }
-        sha256(manifest.toByteArray(Charsets.UTF_8))
+    @Volatile private var initializationStarted = false
+    @Volatile private var bundledInstallRunning = false
+    @Volatile private var fileInstaller: ModelFileInstaller? = null
+    private val stateLock = Any()
+    private val modelFingerprint by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        ModelFileInstaller.fingerprint(FILES)
     }
 
-    /**
-     * Called once from Application.onCreate. The light APK validates legacy
-     * SAF-installed files and keeps a small marker for subsequent starts. The
-     * full APK installs/replaces the bundled model off the main thread.
-     */
+    private fun installer(context: Context): ModelFileInstaller = fileInstaller ?: synchronized(this) {
+        fileInstaller ?: ModelFileInstaller(
+            root = File(context.applicationContext.filesDir, "models"),
+            files = FILES,
+            installDir = INSTALL_DIR,
+            stagingDir = STAGING_DIR,
+            backupDir = BACKUP_DIR,
+            marker = modelFingerprint,
+        ).also { fileInstaller = it }
+    }
+
+    /** The full APK installs its verified assets; the light APK needs a SAF folder. */
     @Synchronized
     fun initialize(context: Context, onDiagnostic: (String) -> Unit = {}) {
         if (initializationStarted) return
         initializationStarted = true
         val appContext = context.applicationContext
-
-        // Recover the old directory if the process was interrupted in the
-        // tiny window between renaming the live directory and installing the
-        // fully staged replacement.
-        recoverInterruptedSwap(appContext)
+        val files = installer(appContext)
+        files.recoverInterruptedSwap()
 
         if (isBundledVariant) {
             startBundledInstall(appContext, onDiagnostic)
             return
         }
 
-        val marker = readVersionMarker(appContext)
+        val marker = files.readMarker()
         when {
-            marker == modelFingerprint && hasExpectedFiles(appContext) -> {
+            marker == modelFingerprint && files.hasExpectedFiles() -> {
                 installState = InstallState.READY
                 thread(name = "model-cleanup", isDaemon = true) {
-                    cleanupAbandonedDirectories(appContext)
+                    cleanupAfterSuccess(appContext)
                 }
             }
             marker != null -> {
-                // A light APK cannot replace a different model version. Ask
-                // the user to install the full APK for this release (or select
-                // the matching model files in onboarding).
-                installState = InstallState.OUTDATED
+                installState = if (marker != modelFingerprint || hasLegacyModel(appContext)) {
+                    InstallState.OUTDATED
+                } else {
+                    InstallState.MISSING
+                }
             }
-            hasExpectedFiles(appContext) -> {
-                // One-time migration for users whose model was installed by an
-                // older app version, before the private version marker existed.
+            files.hasExpectedFiles() -> {
+                // Migration for an unmarked v4 installation: hash before trusting it.
                 installState = InstallState.CHECKING
-                thread(name = "legacy-model-validation", isDaemon = true, priority = Thread.NORM_PRIORITY - 1) {
+                thread(name = "model-validation", isDaemon = true, priority = Thread.NORM_PRIORITY - 1) {
                     try {
-                        if (validateInstalled(appContext)) {
-                            writeVersionMarker(modelDirectory(appContext))
+                        if (files.validateInstalled()) {
+                            files.writeInstalledMarker()
                             installState = InstallState.READY
+                            cleanupAfterSuccess(appContext)
                         } else {
-                            installState = InstallState.MISSING
-                            report(onDiagnostic, "Legacy installed model is invalid or outdated")
+                            installState = if (hasLegacyModel(appContext)) InstallState.OUTDATED else InstallState.MISSING
+                            report(onDiagnostic, "Installed v4 model is invalid")
                         }
-                        cleanupAbandonedDirectories(appContext)
                     } catch (t: Throwable) {
-                        installState = InstallState.MISSING
-                        report(onDiagnostic, "Legacy model validation failed: ${t.message}")
+                        installState = if (hasLegacyModel(appContext)) InstallState.OUTDATED else InstallState.MISSING
+                        report(onDiagnostic, "Model validation failed: ${t.message}")
                     }
                 }
             }
+            hasLegacyModel(appContext) -> installState = InstallState.OUTDATED
             else -> installState = InstallState.MISSING
         }
     }
 
-    @Volatile
-    private var bundledInstallRunning = false
-
-    /** Retries a failed bundled-model install (full APK onboarding only). */
+    /** Retry the automatic full-APK install after an error, without restarting setup. */
     fun retryBundledInstall(context: Context, onDiagnostic: (String) -> Unit = {}) {
         if (!isBundledVariant || installState != InstallState.FAILED) return
         startBundledInstall(context.applicationContext, onDiagnostic)
@@ -125,35 +122,29 @@ object GigaAmModel {
         synchronized(this) {
             if (bundledInstallRunning) return
             bundledInstallRunning = true
+            synchronized(stateLock) { installState = InstallState.INSTALLING }
         }
-        installState = InstallState.INSTALLING
         thread(name = "bundled-model-install", isDaemon = true, priority = Thread.NORM_PRIORITY - 1) {
             try {
-                // Fast path: a previous launch of this model version already
-                // installed and validated these exact files.
-                if (readVersionMarker(appContext) == modelFingerprint &&
-                    hasExpectedFiles(appContext)
-                ) {
-                    cleanupAbandonedDirectories(appContext)
+                val files = installer(appContext)
+                val alreadyVerified = files.readMarker() == modelFingerprint && files.hasExpectedFiles()
+                if (alreadyVerified || (files.hasExpectedFiles() && files.validateInstalled())) {
+                    if (!alreadyVerified) files.writeInstalledMarker()
                     installState = InstallState.READY
+                    cleanupAfterSuccess(appContext)
                     return@thread
                 }
-                // A model previously selected through SAF may already be
-                // the exact model in this full APK. Validate it and mark it
-                // rather than copying an identical 326 MB payload again.
-                if (hasExpectedFiles(appContext) && validateInstalled(appContext)) {
-                    writeVersionMarker(modelDirectory(appContext))
+                val result = files.install(
+                    sourceLength = { null },
+                    openSource = { expected -> appContext.assets.open(expected.name) },
+                )
+                if (result == ModelFileInstaller.Result.SUCCESS) {
                     installState = InstallState.READY
+                    cleanupAfterSuccess(appContext)
                 } else {
-                    val result = installBundledModel(appContext)
-                    if (result == CopyResult.SUCCESS) {
-                        installState = InstallState.READY
-                    } else {
-                        installState = InstallState.FAILED
-                        report(onDiagnostic, "Bundled model install failed: $result")
-                    }
+                    installState = InstallState.FAILED
+                    report(onDiagnostic, "Bundled model install failed: $result")
                 }
-                cleanupAbandonedDirectories(appContext)
             } catch (t: Throwable) {
                 installState = InstallState.FAILED
                 report(onDiagnostic, "Bundled model install failed: ${t.message}")
@@ -164,189 +155,86 @@ object GigaAmModel {
     }
 
     /** Filesystem paths remain the sherpa-onnx source for both APK variants. */
-    fun modelDir(context: Context): File =
-        modelDirectory(context).also { it.mkdirs() }
+    fun modelDir(context: Context): File = installer(context).directory.also { it.mkdirs() }
 
-    /** Fast readiness check used by recording paths. */
+    /** Fast, nonblocking check: do not wait for a 247 MB copy on the UI thread. */
     fun isInstalled(context: Context): Boolean {
         if (installState != InstallState.READY) return false
-        if (readVersionMarker(context) != modelFingerprint) return false
-        return hasExpectedFiles(context)
+        val directory = File(File(context.applicationContext.filesDir, "models"), INSTALL_DIR)
+        val marker = try {
+            File(directory, ".model-version").readText().trim()
+        } catch (_: Exception) {
+            null
+        }
+        val valid = marker == modelFingerprint && FILES.all {
+            File(directory, it.name).let { file -> file.isFile && file.length() == it.sizeBytes }
+        }
+        if (!valid) synchronized(stateLock) {
+            // A replacement may have started while the files were inspected.
+            if (installState == InstallState.READY) {
+                installState = if (isBundledVariant) InstallState.FAILED else InstallState.MISSING
+            }
+        }
+        return valid && installState == InstallState.READY
     }
 
-    /** Full content validation; called during legacy migration and bundled install. */
-    fun validateInstalled(context: Context): Boolean = FILES.all {
-        val file = File(modelDirectory(context), it.name)
-        file.isFile && file.length() == it.sizeBytes && sha256(file) == it.sha256
-    }
+    /** Full content validation, rather than the fast marker/size check. */
+    fun validateInstalled(context: Context): Boolean = installer(context).validateInstalled()
 
     /** Reads only the four required direct children of the selected SAF folder. */
     @Synchronized
     fun copyFromSelectedFolder(context: Context, treeUri: Uri): CopyResult {
         val folder = try {
             DocumentFile.fromTreeUri(context, treeUri)
-        } catch (_: SecurityException) {
+        } catch (_: Exception) {
             return CopyResult.UNREADABLE
         } ?: return CopyResult.UNREADABLE
 
         val selected = FILES.associateBy { it.name }
-        val files = try {
+        val sources = try {
             folder.listFiles()
                 .filter { it.isFile && selected.containsKey(it.name) }
                 .associateBy { it.name }
-        } catch (_: SecurityException) {
+        } catch (_: Exception) {
             return CopyResult.UNREADABLE
         }
-        if (files.size != FILES.size) return CopyResult.MISSING
+        if (sources.size != FILES.size) return CopyResult.MISSING
 
-        val previousState = installState
-        installState = InstallState.INSTALLING
-        val result = installFromSources(
-            context = context,
-            sourceLength = { expected -> files[expected.name]?.length() },
+        val previousState = synchronized(stateLock) {
+            installState.also { installState = InstallState.INSTALLING }
+        }
+        val result = installer(context).install(
+            sourceLength = { expected -> sources[expected.name]?.length() },
             openSource = { expected ->
-                files[expected.name]?.let { context.contentResolver.openInputStream(it.uri) }
+                sources[expected.name]?.let { context.contentResolver.openInputStream(it.uri) }
             },
         )
-        installState = when (result) {
+        val copyResult = CopyResult.valueOf(result.name)
+        installState = when (copyResult) {
             CopyResult.SUCCESS -> InstallState.READY
             else -> previousState.takeIf { it == InstallState.READY || it == InstallState.OUTDATED }
                 ?: InstallState.MISSING
         }
-        return result
+        if (copyResult == CopyResult.SUCCESS) cleanupAfterSuccess(context)
+        return copyResult
     }
 
-    private fun installBundledModel(context: Context): CopyResult = installFromSources(
-        context = context,
-        sourceLength = { null },
-        openSource = { expected -> context.assets.open(expected.name) },
-    )
-
-    /** Copy, validate, and atomically swap a complete set of model files. */
-    private fun installFromSources(
-        context: Context,
-        sourceLength: (ModelFile) -> Long?,
-        openSource: (ModelFile) -> InputStream?,
-    ): CopyResult {
-        val root = modelRoot(context).also { it.mkdirs() }
-        val stage = File(root, STAGING_DIR)
-        val destination = File(root, INSTALL_DIR)
-        val backup = File(root, BACKUP_DIR)
-
-        if (stage.exists() && !stage.deleteRecursively()) return CopyResult.INVALID
-        if (!stage.mkdirs()) return CopyResult.INVALID
-
-        try {
-            for (expected in FILES) {
-                val incomingLength = sourceLength(expected)
-                if (incomingLength != null && incomingLength != expected.sizeBytes) {
-                    return CopyResult.INVALID
-                }
-
-                val input = try {
-                    openSource(expected)
-                } catch (_: SecurityException) {
-                    return CopyResult.UNREADABLE
-                } catch (_: Exception) {
-                    return CopyResult.UNREADABLE
-                } ?: return CopyResult.UNREADABLE
-
-                val stagedFile = File(stage, expected.name)
-                input.use { source ->
-                    stagedFile.outputStream().buffered(COPY_BUFFER_SIZE).use { output ->
-                        source.copyTo(output, COPY_BUFFER_SIZE)
-                    }
-                }
-                if (!stagedFile.isFile || stagedFile.length() != expected.sizeBytes ||
-                    sha256(stagedFile) != expected.sha256
-                ) {
-                    return CopyResult.INVALID
-                }
-            }
-
-            writeVersionMarker(stage)
-            if (!commitStagedDirectory(stage, destination, backup)) return CopyResult.INVALID
-            return CopyResult.SUCCESS
-        } catch (_: SecurityException) {
-            return CopyResult.UNREADABLE
-        } catch (_: Exception) {
-            return CopyResult.INVALID
-        } finally {
-            if (stage.exists()) stage.deleteRecursively()
-        }
+    private fun hasLegacyModel(context: Context): Boolean {
+        val root = File(context.filesDir, "models")
+        return legacyDirectories.any { File(root, it).exists() }
     }
 
-    private fun commitStagedDirectory(stage: File, destination: File, backup: File): Boolean {
-        if (backup.exists() && !backup.deleteRecursively()) return false
-
-        val hadPrevious = destination.exists()
-        if (hadPrevious && !destination.renameTo(backup)) return false
-
-        if (!stage.renameTo(destination)) {
-            if (hadPrevious && backup.exists()) backup.renameTo(destination)
-            return false
-        }
-
-        if (backup.exists()) backup.deleteRecursively()
-        return true
-    }
-
-    private fun recoverInterruptedSwap(context: Context) {
-        val root = modelRoot(context)
-        val destination = File(root, INSTALL_DIR)
-        val backup = File(root, BACKUP_DIR)
-        if (!destination.exists() && backup.exists()) {
-            backup.renameTo(destination)
-        }
-    }
-
-    private fun cleanupAbandonedDirectories(context: Context) {
-        val root = modelRoot(context)
-        val destination = File(root, INSTALL_DIR)
-        File(root, STAGING_DIR).deleteRecursively()
-        if (destination.exists()) File(root, BACKUP_DIR).deleteRecursively()
-    }
-
-    private fun hasExpectedFiles(context: Context): Boolean = FILES.all {
-        val file = File(modelDirectory(context), it.name)
-        file.isFile && file.length() == it.sizeBytes
-    }
-
-    private fun modelRoot(context: Context): File = File(context.filesDir, "models")
-
-    private fun modelDirectory(context: Context): File = File(modelRoot(context), INSTALL_DIR)
-
-    private fun markerFile(directory: File): File = File(directory, VERSION_MARKER)
-
-    private fun readVersionMarker(context: Context): String? = try {
-        markerFile(modelDirectory(context)).takeIf { it.isFile }?.readText()?.trim()
-    } catch (_: Exception) {
-        null
-    }
-
-    private fun writeVersionMarker(directory: File) {
-        markerFile(directory).writeText(modelFingerprint)
+    /** Never delete v3 until v4 is fully copied, hashed and committed. */
+    private fun cleanupAfterSuccess(context: Context) {
+        val files = installer(context)
+        files.cleanupAbandonedDirectories()
+        if (files.readMarker() != modelFingerprint || !files.hasExpectedFiles()) return
+        val root = File(context.filesDir, "models")
+        legacyDirectories.forEach { File(root, it).deleteRecursively() }
     }
 
     private fun report(onDiagnostic: (String) -> Unit, message: String) {
         Log.w(TAG, message)
         runCatching { onDiagnostic(message) }
     }
-
-    private fun sha256(file: File): String = file.inputStream().use(::sha256)
-
-    private fun sha256(input: InputStream): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(COPY_BUFFER_SIZE)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
-        .digest(bytes)
-        .joinToString("") { "%02x".format(it) }
 }

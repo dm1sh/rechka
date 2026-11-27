@@ -32,6 +32,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textview.MaterialTextView
 
 import ru.dm1sh.rechka.R
+import ru.dm1sh.rechka.model.GigaAmModel
 import ru.dm1sh.rechka.stats.StatsStore
 import ru.dm1sh.rechka.service.LiteAccessibilityService
 import ru.dm1sh.rechka.util.AccessibilityHelper
@@ -54,6 +55,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var headline: MaterialTextView
     private lateinit var subline: MaterialTextView
 
+    private lateinit var cardModelMissing: MaterialCardView
+    private lateinit var cardModelStatus: MaterialTextView
+    private lateinit var cardModelButton: MaterialButton
     private lateinit var cardMicMissing: MaterialCardView
     private lateinit var cardMicButton: MaterialButton
     private lateinit var cardServiceMissing: MaterialCardView
@@ -82,6 +86,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var promoCard: View
     private lateinit var toolbar: MaterialToolbar
     private var showJustFinished: Boolean = false
+
+    private val modelStateHandler = Handler(Looper.getMainLooper())
+    private val modelStatePoll = object : Runnable {
+        override fun run() {
+            refreshStatuses()
+            if (GigaAmModel.installState == GigaAmModel.InstallState.CHECKING ||
+                GigaAmModel.installState == GigaAmModel.InstallState.INSTALLING
+            ) modelStateHandler.postDelayed(this, 500L)
+        }
+    }
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -131,6 +145,13 @@ class MainActivity : AppCompatActivity() {
 
         headline = findViewById(R.id.mainHeadline)
         subline = findViewById(R.id.mainSubline)
+
+        cardModelMissing = findViewById(R.id.cardModelMissing)
+        cardModelStatus = findViewById(R.id.cardModelStatus)
+        cardModelButton = findViewById(R.id.cardModelButton)
+        cardModelButton.setOnClickListener {
+            startActivity(Intent(this, ModelSetupActivity::class.java))
+        }
 
         cardMicMissing = findViewById(R.id.cardMicMissing)
         cardMicButton = findViewById(R.id.cardMicButton)
@@ -232,7 +253,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        refreshStatuses()
+        modelStateHandler.removeCallbacks(modelStatePoll)
+        modelStatePoll.run()
         refreshStats()
         val cr = contentResolver
         cr.registerContentObserver(
@@ -254,6 +276,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        modelStateHandler.removeCallbacks(modelStatePoll)
         contentResolver.unregisterContentObserver(accessibilityObserver)
         super.onPause()
     }
@@ -322,6 +345,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatuses() {
+        val modelOk = GigaAmModel.isInstalled(this)
+        val modelState = GigaAmModel.installState
+        val modelBusy = modelState == GigaAmModel.InstallState.CHECKING ||
+            modelState == GigaAmModel.InstallState.INSTALLING
+        cardModelMissing.visibility = if (modelOk) View.GONE else View.VISIBLE
+        cardModelButton.visibility = if (modelBusy) View.GONE else View.VISIBLE
+        cardModelStatus.setText(when (modelState) {
+            GigaAmModel.InstallState.CHECKING, GigaAmModel.InstallState.INSTALLING -> R.string.main_card_model_loading
+            GigaAmModel.InstallState.OUTDATED -> R.string.main_card_model_outdated
+            GigaAmModel.InstallState.FAILED -> R.string.main_card_model_failed
+            else -> R.string.main_card_model_missing
+        })
+
         val micOk = ContextCompat.checkSelfPermission(
             this, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
@@ -337,10 +373,9 @@ class MainActivity : AppCompatActivity() {
         val shortcutOn = AccessibilityHelper.isLiteShortcutEnabled(this)
         val overlayRequested = isModeSelected(KEY_MODE_OVERLAY)
         val keyboardSelected = isModeSelected(KEY_MODE_KEYBOARD)
-        // Critical = blocks a selected input mode. File transcription is always
-        // available and therefore keeps the main screen usable by itself.
-        val criticalOk = !overlayRequested && !keyboardSelected ||
-            micOk && ((keyboardSelected && keyboardOk) || (overlayRequested && serviceOk && !shortcutOn))
+        // All input modes, including files, require an installed model.
+        val criticalOk = modelOk && (!overlayRequested && !keyboardSelected ||
+            micOk && ((keyboardSelected && keyboardOk) || (overlayRequested && serviceOk && !shortcutOn)))
 
         // Only surface the shortcut card when the service is on — otherwise
         // the user is still in "enable me first" mode and the extra advisory

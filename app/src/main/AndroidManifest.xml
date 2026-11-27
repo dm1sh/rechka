@@ -53,6 +53,13 @@
             tools:ignore="LockedOrientationActivity" />
 
         <activity
+            android:name=".ui.ModelSetupActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.MainActivity"
+            android:screenOrientation="portrait"
+            tools:ignore="LockedOrientationActivity" />
+
+        <activity
             android:name=".ui.VoiceRecognitionActivity"
             android:exported="true"
             android:excludeFromRecents="true"

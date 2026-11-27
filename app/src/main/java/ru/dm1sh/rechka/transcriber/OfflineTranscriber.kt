@@ -16,12 +16,13 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Offline ASR using sherpa-onnx with GigaAM v3 E2E RNNT (NeMo transducer).
- * Singleton — keeps recognizer in memory across recordings. Tries NNAPI first, falls back to CPU.
+ * Full-context, offline GigaAM v4 E2E RNN-T via sherpa-onnx's NeMo transducer.
+ * VAD segments are decoded independently; this is not the v4 streaming model.
+ * The singleton tries NNAPI first and falls back to CPU if initialization fails.
  */
 class OfflineTranscriber private constructor(
     private val recognizer: OfflineRecognizer,
-    /** Which ONNX execution provider actually loaded the model: "nnapi" or "cpu". */
+    /** Requested execution provider; NNAPI may delegate unsupported operations to CPU. */
     val activeProvider: String
 ) : Transcriber {
 
@@ -71,6 +72,7 @@ class OfflineTranscriber private constructor(
         }
 
         private fun buildRecognizer(context: Context): Pair<OfflineRecognizer, String> {
+            check(GigaAmModel.isInstalled(context)) { "GigaAM v4 model is not installed or is invalid" }
             val dir = GigaAmModel.modelDir(context)
             val missing = GigaAmModel.FILES.map { File(dir, it.name) }.filter { !it.exists() }
             if (missing.isNotEmpty()) {
@@ -81,7 +83,7 @@ class OfflineTranscriber private constructor(
                 try {
                     val config = buildConfig(dir, provider)
                     val recognizer = OfflineRecognizer(null, config)
-                    Log.i(TAG, "GigaAM v3 provider=$provider — OK")
+                    Log.i(TAG, "GigaAM v4 provider=$provider — OK")
                     return Pair(recognizer, provider)
                 } catch (e: Exception) {
                     Log.w(TAG, "provider '$provider' FAILED: ${e.message}")
@@ -104,7 +106,9 @@ class OfflineTranscriber private constructor(
                 modelType = "nemo_transducer"
             )
             return OfflineRecognizerConfig(
-                featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
+                // The v4 encoder consumes 64 mel bins; sherpa's GigaAM branch
+                // also detects this from the model metadata.
+                featConfig = FeatureConfig(sampleRate = 16000, featureDim = 64),
                 modelConfig = modelConfig
             )
         }
@@ -113,7 +117,7 @@ class OfflineTranscriber private constructor(
     private val audioBuffer = ByteArrayOutputStream()
 
     override suspend fun connect() {
-        Log.i(TAG, "Offline transcriber ready (GigaAM v3)")
+        Log.i(TAG, "Offline transcriber ready (GigaAM v4)")
     }
 
     override suspend fun startAudio(rate: Int, width: Int, channels: Int) {
@@ -144,11 +148,13 @@ class OfflineTranscriber private constructor(
                 return@synchronized ""
             }
             val stream = recognizer.createStream()
-            stream.acceptWaveform(samples, sampleRate = 16000)
-            recognizer.decode(stream)
-            val result = recognizer.getResult(stream)
-            stream.release()
-            result.text.trim()
+            try {
+                stream.acceptWaveform(samples, sampleRate = 16000)
+                recognizer.decode(stream)
+                recognizer.getResult(stream).text.trim()
+            } finally {
+                stream.release()
+            }
         }
 
         // Privacy: log only the length, never the recognised text content.

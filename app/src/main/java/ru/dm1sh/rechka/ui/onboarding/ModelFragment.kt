@@ -85,6 +85,9 @@ class ModelFragment : OnboardingStepFragment() {
 
     private fun refreshState() {
         val bundled = GigaAmModel.isBundledVariant
+        // Detect a removed/corrupt installation before displaying READY.
+        GigaAmModel.isInstalled(requireContext())
+        chooseButton.setText(R.string.onb_model_choose)
         // Manual installation is a light-APK flow; the full APK only offers
         // a retry button if its automatic bundled install failed.
         downloadButton.visibility = if (bundled) View.GONE else View.VISIBLE
@@ -158,19 +161,19 @@ class ModelFragment : OnboardingStepFragment() {
     }
 
     private fun showResult(result: GigaAmModel.CopyResult) {
-        chooseButton.isEnabled = true
+        // Restore the button and completion state even if a failed replacement
+        // left an already-installed, verified model intact.
+        refreshState()
         when (result) {
-            // State is READY now; refreshState shows the ready text.
-            GigaAmModel.CopyResult.SUCCESS -> refreshState()
+            GigaAmModel.CopyResult.SUCCESS -> Unit
             GigaAmModel.CopyResult.MISSING -> status.setText(R.string.onb_model_missing)
             GigaAmModel.CopyResult.INVALID -> status.setText(R.string.onb_model_invalid)
             GigaAmModel.CopyResult.UNREADABLE -> status.setText(R.string.onb_model_unreadable)
         }
-        if (result != GigaAmModel.CopyResult.SUCCESS) setStepComplete(false)
     }
 
     companion object {
         private const val MODEL_RELEASE_URL =
-            "https://github.com/dm1sh/rechka/releases/tag/model-gigaam-v3"
+            "https://github.com/ivkiwi/phone-whisper/releases/tag/models-gigaam-v4"
     }
 }

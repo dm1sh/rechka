@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -20,21 +21,34 @@ val ciVersionCode = providers.gradleProperty("versionCode")
     .orNull
     ?.toIntOrNull()
 
-// The large model is downloaded locally/inside CI and is never committed.
-// scripts/download-model.sh verifies its SHA-256 before Gradle packages it.
+// The model is downloaded locally/inside CI and is never committed. Verify
+// content as well as size here, including when files were supplied manually.
 val bundledGigaAmFiles = mapOf(
-    "gigaam_v3_e2e_rnnt_encoder_int8.onnx" to 318_995_997L,
-    "gigaam_v3_e2e_rnnt_decoder.onnx" to 4_600_058L,
-    "gigaam_v3_e2e_rnnt_joint.onnx" to 2_712_896L,
-    "gigaam_v3_e2e_rnnt_tokens.txt" to 13_353L,
+    "gigaam_v4_e2e_rnnt_encoder_int8.onnx" to (239_885_452L to "55a182f536b0c61eb1bb67214600967858ba4646fb68fe3bcb70549029a65ad8"),
+    "gigaam_v4_e2e_rnnt_decoder.onnx" to (4_600_129L to "f665598c4e271dfe1641106751bf895dc02517c4ff98a35a2c2a7f2b6b990e17"),
+    "gigaam_v4_e2e_rnnt_joint.onnx" to (2_712_897L to "0d7888efb5cc6a07d04c4bbe9a5fe87951d16abf687bc11fdfb2046cae753228"),
+    "gigaam_v4_e2e_rnnt_tokens.txt" to (9_982L to "4af4f59269ff664ea6a55838b12fa0cb5e07bd5e019202b4d38b3fbc9275e923"),
 )
-val bundledGigaAmDirectory = rootProject.file("models/gigaam-v3")
+val bundledGigaAmDirectory = rootProject.file("models/gigaam-v4")
 val verifyBundledGigaAmModel by tasks.registering {
     inputs.files(bundledGigaAmFiles.keys.map { File(bundledGigaAmDirectory, it) })
     doLast {
-        val invalid = bundledGigaAmFiles.filter { (name, expectedSize) ->
+        val invalid = bundledGigaAmFiles.filter { (name, expected) ->
             val file = File(bundledGigaAmDirectory, name)
-            !file.isFile || file.length() != expectedSize
+            if (!file.isFile || file.length() != expected.first) {
+                true
+            } else {
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(1024 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (count > 0) digest.update(buffer, 0, count)
+                    }
+                }
+                digest.digest().joinToString("") { "%02x".format(it) } != expected.second
+            }
         }.keys
         if (invalid.isNotEmpty()) {
             throw GradleException(
@@ -120,6 +134,12 @@ android {
         buildConfig = true
     }
 
+    // INT8 model weights compress poorly; store ONNX assets directly to avoid
+    // an extra ~240 MB deflate buffer during full-APK builds and speed copying.
+    androidResources {
+        noCompress += "onnx"
+    }
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
@@ -156,7 +176,8 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    // sherpa-onnx v1.12.34: offline ASR engine used with GigaAM v3.
+    // sherpa-onnx 1.13.0: offline NeMo transducer engine for GigaAM v4.
     // AAR must be present at app/libs/sherpa-onnx.aar — see scripts/download-sherpa-onnx.sh.
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
+    testImplementation("junit:junit:4.13.2")
 }

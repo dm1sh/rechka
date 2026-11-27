@@ -22,7 +22,7 @@
     <string name="ime_listening">Слушаю…</string>
     <string name="ime_processing">Распознаю…</string>
     <string name="ime_mic_permission">Разрешите доступ к микрофону в настройках приложения</string>
-    <string name="ime_model_not_ready">Модель ещё устанавливается. Попробуйте через минуту.</string>
+    <string name="ime_model_not_ready">Модель не готова. Откройте Речку, чтобы установить или восстановить её.</string>
     <string name="settings_ime_auto_start_title">Автозапуск диктовки</string>
     <string name="settings_ime_auto_start_body">Начинать распознавание сразу после открытия голосовой клавиатуры.</string>
     <string name="settings_ime_walkie_title">Режим рации</string>
@@ -59,9 +59,9 @@
 
     <!-- Onboarding: external speech model -->
     <string name="onb_model_title">Установите модель распознавания</string>
-    <string name="onb_model_body">Для работы Речки нужна модель распознавания размером около 326 МБ.</string>
-    <string name="onb_model_files">Нужны эти файлы:\n\n• gigaam_v3_e2e_rnnt_encoder_int8.onnx\n• gigaam_v3_e2e_rnnt_decoder.onnx\n• gigaam_v3_e2e_rnnt_joint.onnx\n• gigaam_v3_e2e_rnnt_tokens.txt</string>
-    <string name="onb_model_folder_warning">Важно: Android не разрешает выбирать корневую папку «Загрузки» Создайте внутри неё отдельную папку, например «Rechka model», сохраните туда файлы и выберите её. После копирования исходные файлы можно удалить.</string>
+    <string name="onb_model_body">Для работы Речки нужна модель GigaAM v4 размером около 247 МБ.</string>
+    <string name="onb_model_files">Нужны эти файлы:\n\n• gigaam_v4_e2e_rnnt_encoder_int8.onnx\n• gigaam_v4_e2e_rnnt_decoder.onnx\n• gigaam_v4_e2e_rnnt_joint.onnx\n• gigaam_v4_e2e_rnnt_tokens.txt</string>
+    <string name="onb_model_folder_warning">Важно: Android не разрешает выбирать корневую папку «Загрузки». Создайте внутри неё отдельную папку, например «Rechka model», сохраните туда файлы и выберите её. После копирования исходные файлы можно удалить.</string>
     <string name="onb_model_download">Скачать модель с GitHub</string>
     <string name="onb_model_choose">Выбрать папку с моделью</string>
     <string name="onb_model_pending">Модель ещё не установлена.</string>
@@ -74,7 +74,7 @@
     <string name="onb_model_bundled_installing">Модель входит в этот APK. Устанавливаю её во внутреннее хранилище — это может занять около минуты.</string>
     <string name="onb_model_bundled_failed">Не удалось установить модель из APK. Проверьте, что на устройстве достаточно свободного места, и попробуйте ещё раз.</string>
     <string name="onb_model_retry">Повторить установку модели</string>
-    <string name="onb_model_outdated">Установленная модель не подходит к этой версии Речки. Установите поверх полную версию APK, чтобы обновить модель, либо выберите папку с нужными файлами ниже.</string>
+    <string name="onb_model_outdated">Для этой версии нужна GigaAM v4. Выберите папку с новыми файлами ниже или установите поверх полный APK. Старая модель сохраняется до успешной установки новой.</string>
     <string name="onb_welcome_title">Говорите свободно</string>
     <string name="onb_welcome_body">Превращаю речь в текст. Без интернета, без аккаунтов.</string>
     <string name="onb_welcome_note">Пара коротких шагов — и поехали.</string>
@@ -148,6 +148,12 @@
     <string name="share_transcription_failed">Не удалось расшифровать аудио: %1$s</string>
 
     <!-- Main screen -->
+    <string name="main_card_model_title">Модель распознавания</string>
+    <string name="main_card_model_loading">Проверяем и устанавливаем модель. Это может занять несколько минут.</string>
+    <string name="main_card_model_missing">Установите GigaAM v4, чтобы распознавать речь и файлы.</string>
+    <string name="main_card_model_outdated">Для этой версии Речки нужна новая модель GigaAM v4. Прежняя сохранена до успешного обновления.</string>
+    <string name="main_card_model_failed">Не удалось установить модель из APK. Проверьте свободное место и повторите установку.</string>
+    <string name="main_card_model_button">Установить или восстановить модель</string>
     <string name="main_ready">Всё готово</string>
     <string name="main_modes_title">Способы использования</string>
     <string name="main_mode_overlay">Плавающий микрофон</string>
@@ -159,7 +165,7 @@
     <string name="main_just_finished">Всё готово!</string>
     <string name="main_just_finished_sub">Диктуйте через плавающий микрофон, голосовую клавиатуру или расшифровывайте аудио и видеофайлы.</string>
     <string name="main_hint">Используйте плавающий микрофон, голосовую клавиатуру или откройте аудио- и видеофайл для расшифровки.</string>
-    <string name="main_engine_credit">Движок — GigaAM v3 от Сбера, лицензия MIT.</string>
+    <string name="main_engine_credit">Движок — GigaAM v4 от Giga, лицензия MIT.</string>
     <string name="main_card_mic_title">Включите микрофон</string>
     <string name="main_card_mic_body">Без микрофона Речка не услышит, что вы говорите. Выберите Разрешения → Микрофон → Разрешить во время использования приложения.</string>
     <string name="main_card_mic_button">Перейти в настройки</string>
@@ -275,8 +281,8 @@
     <string name="about_version_fmt">Версия %1$s</string>
 
     <!-- About: how it works (info rows) -->
-    <string name="about_row_engine_title">Движок GigaAM v3</string>
-    <string name="about_row_engine_body">Офлайн-модель от Сбера, лицензия MIT</string>
+    <string name="about_row_engine_title">Движок GigaAM v4</string>
+    <string name="about_row_engine_body">Офлайн-модель Giga, лицензия MIT</string>
     <string name="about_row_offline_title">Работает без интернета</string>
     <string name="about_row_offline_body">Звук обрабатывается прямо на телефоне и никуда не отправляется</string>
     <string name="about_row_source_title">Открытый исходный код</string>
