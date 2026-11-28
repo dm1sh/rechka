@@ -287,8 +287,6 @@
     <string name="about_row_offline_body">Звук обрабатывается прямо на телефоне и никуда не отправляется</string>
     <string name="about_row_source_title">Открытый исходный код</string>
     <string name="about_row_source_body">Приложение бесплатное — код можно изучать и собирать самому</string>
-    <string name="about_row_updates_title">Обновления проекта</string>
-    <string name="about_row_updates_body">Речка сама предложит обновиться, когда выйдет новая версия</string>
 
     <!-- About: GitHub action row -->
     <string name="about_action_github_title">Исходный код на GitHub</string>
@@ -315,7 +313,7 @@
     <!-- About: thanks -->
 
     <!-- About: compatibility + recognition-limits notes shown as plain muted text -->
-    <string name="about_devices_body">Приложение проверено на устройствах Google Pixel (6 и новее) на чистом Android 13–15. На смартфонах Xiaomi, Huawei и других производителях с агрессивной экономией батареи может потребоваться вручную добавить Речку в «Автозапуск» и снять ограничения для Речки в специальных возможностях.</string>
+    <string name="about_devices_body">Приложение проверено на устройствах Google Pixel (6 и новее) на чистом Android 13–17. На смартфонах Xiaomi, Huawei и других производителях с агрессивной экономией батареи может потребоваться вручную добавить Речку в «Автозапуск» и снять ограничения для Речки в специальных возможностях.</string>
     <string name="about_disclaimer_body">Распознавание речи выполняется нейросетевой моделью и может содержать ошибки и неточности. Автор и приложение не несут ответственности за неверную интерпретацию распознанного текста и его последующее использование. Перед отправкой важных сообщений всегда перечитывайте результат.</string>
 
     <!-- About: footer -->

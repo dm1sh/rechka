@@ -55,11 +55,6 @@ class AboutActivity : AppCompatActivity() {
             R.id.rowSource, R.drawable.ic_code_24,
             R.string.about_row_source_title, R.string.about_row_source_body
         )
-        bindInfoRow(
-            R.id.rowUpdates, R.drawable.ic_update_24,
-            R.string.about_row_updates_title, R.string.about_row_updates_body
-        )
-
         val github = findViewById<View>(R.id.rowGithub)
         bindActionRow(
             github, R.drawable.ic_github_24,

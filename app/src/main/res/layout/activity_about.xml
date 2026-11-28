@@ -106,13 +106,6 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp" />
 
-            <include
-                android:id="@+id/rowUpdates"
-                layout="@layout/item_info_row"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp" />
-
             <!-- Clickable action row: opens GitHub -->
             <include
                 android:id="@+id/rowGithub"
