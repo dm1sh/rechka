@@ -26,7 +26,7 @@
     <string name="settings_ime_auto_start_title">Автозапуск диктовки</string>
     <string name="settings_ime_auto_start_body">Начинать распознавание сразу после открытия голосовой клавиатуры.</string>
     <string name="settings_ime_walkie_title">Режим рации</string>
-    <string name="settings_ime_walkie_body">Удерживайте микрофон для диктовки. Проведите вверх, чтобы зафиксировать запись; отпустите для остановки.</string>
+    <string name="settings_ime_walkie_body">Короткое нажатие включает и выключает запись. Удерживайте микрофон для диктовки и отпустите для остановки; проведите вверх, чтобы зафиксировать запись.</string>
     <string name="settings_ime_repeat_delete_title">Повторять удаление при удержании</string>
     <string name="settings_ime_repeat_delete_body">При выключении удержание кнопки backspace выбирает текст для удаления вместо непрерывного удаления.</string>
     <string name="settings_file_vad_title">VAD для файлов</string>

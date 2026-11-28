@@ -36,12 +36,12 @@ jobs:
 
       # Debug CI builds the light variant only; the full variant also needs
       # the ~247 MB model download (see the release workflow).
-      - name: Build debug APK
+      - name: Run unit tests and build debug APK
         # Run number is monotonic; the attempt component also makes a
         # manually re-run workflow produce a newer installable APK.
         run: |
           VERSION_CODE=$((19 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
-          ./gradlew --no-daemon assembleLightDebug -PversionCode="$VERSION_CODE"
+          ./gradlew --no-daemon testLightDebugUnitTest assembleLightDebug -PversionCode="$VERSION_CODE"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

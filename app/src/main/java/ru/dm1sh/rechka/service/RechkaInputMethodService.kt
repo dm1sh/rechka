@@ -44,11 +44,12 @@ class RechkaInputMethodService : InputMethodService() {
     private var recording = false
     private var processing = false
     private val touchHandler = Handler(Looper.getMainLooper())
-    private var walkieLongPressTriggered = false
-    private var walkieLocked = false
-    private var walkieDownRawY = 0f
+    private val walkieGesture = WalkieTalkieGesture()
     private val walkieStartRunnable = Runnable {
-        if (!recording && walkieLongPressTriggered) startRecording()
+        if (walkieGesture.onHoldTimeout(recording)) {
+            startRecording()
+            walkieGesture.onHoldStartResult(recording)
+        }
     }
 
     private lateinit var recordButton: BubbleView
@@ -59,6 +60,8 @@ class RechkaInputMethodService : InputMethodService() {
     private val sessionText = StringBuilder()
 
     override fun onCreateInputView(): View {
+        // A replaced input view must not leave an old long-press timer behind.
+        cancelWalkieGesture()
         // InputMethodService does not inherit the Activity theme. Wrapping the
         // context is required for MaterialButton's theme enforcement and also
         // lets Material resolve the device's Monet/dynamic colors.
@@ -494,53 +497,71 @@ class RechkaInputMethodService : InputMethodService() {
     }
 
     private fun configureRecordTouch() {
+        // The same click action handles normal taps and accessibility clicks
+        // in both modes. Walkie touch handling calls performClick() for a tap.
         recordButton.setOnClickListener {
-            if (Prefs.isImeWalkieTalkieEnabled(this)) return@setOnClickListener
             if (recording) stopRecording() else startRecording()
         }
-        recordButton.setOnTouchListener { _, event ->
-            if (!Prefs.isImeWalkieTalkieEnabled(this)) return@setOnTouchListener false
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    walkieLongPressTriggered = !recording
-                    walkieLocked = false
-                    walkieDownRawY = event.rawY
-                    if (walkieLongPressTriggered) {
-                        touchHandler.postDelayed(
-                            walkieStartRunnable,
-                            ViewConfiguration.getLongPressTimeout().toLong(),
-                        )
-                    }
-                    recordButton.isPressed = true
-                    true
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+        recordButton.setOnTouchListener { view, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                cancelWalkieGesture()
+                if (!Prefs.isImeWalkieTalkieEnabled(this)) return@setOnTouchListener false
+                if (walkieGesture.begin(recording, event.rawY)) {
+                    touchHandler.postDelayed(
+                        walkieStartRunnable,
+                        ViewConfiguration.getLongPressTimeout().toLong(),
+                    )
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    if (walkieLongPressTriggered && !walkieLocked &&
-                        walkieDownRawY - event.rawY >= dp(48)
-                    ) {
-                        // Slide upward to lock recording after release.
-                        walkieLocked = true
-                        Haptics.doubleTap(this)
-                        updateRecordButton()
-                        recordButton.isPressed = false
+                view.isPressed = true
+                true
+            } else if (!walkieGesture.isActive) {
+                // Let View handle the ordinary non-walkie click sequence.
+                false
+            } else {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_MOVE -> {
+                        if (walkieGesture.move(event.rawY, dp(48).toFloat())) {
+                            Haptics.doubleTap(this)
+                            updateRecordButton()
+                            view.isPressed = false
+                        }
+                        true
                     }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    touchHandler.removeCallbacks(walkieStartRunnable)
-                    recordButton.isPressed = false
-                    if (walkieLongPressTriggered) {
-                        if (!walkieLocked && recording) stopRecording()
-                    } else if (recording) {
-                        // A tap always stops an active recording, including an
-                        // automatically started or previously locked session.
-                        stopRecording()
+                    MotionEvent.ACTION_UP -> {
+                        touchHandler.removeCallbacks(walkieStartRunnable)
+                        view.isPressed = false
+                        val insideButton = event.x >= -touchSlop && event.y >= -touchSlop &&
+                            event.x < view.width + touchSlop && event.y < view.height + touchSlop
+                        when (walkieGesture.end(cancelled = false, recording = recording, insideButton = insideButton)) {
+                            WalkieTalkieGesture.EndAction.CLICK -> {
+                                view.performClick()
+                                if (!recording) walkieGesture.clearLock()
+                            }
+                            WalkieTalkieGesture.EndAction.STOP_HOLD -> stopRecording()
+                            WalkieTalkieGesture.EndAction.NONE -> Unit
+                        }
+                        true
                     }
-                    walkieLongPressTriggered = false
-                    true
+                    MotionEvent.ACTION_CANCEL -> {
+                        cancelWalkieGesture()
+                        true
+                    }
+                    else -> true
                 }
-                else -> true
             }
+        }
+    }
+
+    private fun cancelWalkieGesture(stopHold: Boolean = true) {
+        touchHandler.removeCallbacks(walkieStartRunnable)
+        if (::recordButton.isInitialized) recordButton.isPressed = false
+        val wasLocked = walkieGesture.isLocked
+        val action = walkieGesture.end(cancelled = true, recording = recording)
+        if (stopHold && action == WalkieTalkieGesture.EndAction.STOP_HOLD) {
+            stopRecording()
+        } else if (wasLocked && !walkieGesture.isLocked && recording) {
+            updateRecordButton()
         }
     }
 
@@ -622,7 +643,7 @@ class RechkaInputMethodService : InputMethodService() {
             onDone = {
                 recording = false
                 processing = false
-                walkieLocked = false
+                walkieGesture.clearLock()
                 recorder = null
                 if (sessionText.isNotEmpty() && Prefs.isVoiceSuffixEnabled(this@RechkaInputMethodService)) {
                     currentInputConnection?.commitText("\n\n[текст распознан с голоса]", 1)
@@ -641,7 +662,7 @@ class RechkaInputMethodService : InputMethodService() {
     }
 
     private fun stopRecording() {
-        if (!recording) return
+        if (!recording || processing) return
         Haptics.tap(this)
         processing = true
         updateRecordButton()
@@ -661,7 +682,7 @@ class RechkaInputMethodService : InputMethodService() {
         }
         val label = when {
             processing -> R.string.ime_processing
-            recording && walkieLocked -> R.string.ime_locked
+            recording && walkieGesture.isLocked -> R.string.ime_locked
             recording -> R.string.ime_stop
             else -> R.string.ime_start
         }
@@ -734,12 +755,19 @@ class RechkaInputMethodService : InputMethodService() {
         if (!switchToPreviousInputMethod()) requestHideSelf(0)
     }
 
+    override fun onFinishInputView(finishingInput: Boolean) {
+        cancelWalkieGesture()
+        super.onFinishInputView(finishingInput)
+    }
+
     override fun onFinishInput() {
+        cancelWalkieGesture(stopHold = false)
         stopRecording()
         super.onFinishInput()
     }
 
     override fun onDestroy() {
+        cancelWalkieGesture(stopHold = false)
         recorder?.stop()
         scope.cancel()
         super.onDestroy()
