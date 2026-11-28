@@ -181,10 +181,10 @@
 
     <!-- One-time "What's new" card for the current release. Shown on the
          main screen only after setup problems are cleared. -->
-    <string name="main_card_whats_new_title">Что нового в 1.3.0</string>
-    <string name="main_card_whats_new_line1">• GigaAM v4 распознаёт русскую и английскую речь прямо на устройстве, без интернета.</string>
-    <string name="main_card_whats_new_line2">• В полном APK модель устанавливается автоматически; в лёгком нужны четыре файла GigaAM v4.</string>
-    <string name="main_card_whats_new_line3">• При обновлении настройки сохраняются, а прежняя модель удаляется только после проверки и установки новой.</string>
+    <string name="main_card_whats_new_title">Что нового в 1.3.1</string>
+    <string name="main_card_whats_new_line1">• Исправлено распознавание некоторых файлов HE-AAC, которые раньше могли давать неверный текст.</string>
+    <string name="main_card_whats_new_line2">• Речка учитывает фактическую частоту и число каналов декодированного аудио.</string>
+    <string name="main_card_whats_new_line3">• При обработке дочитывается конец записи и сохраняется хвост после преобразования звука.</string>
 
     <string name="main_card_whats_new_dismiss">Понятно</string>
     <string name="main_needs_setup_sub">Несколько мелочей надо подкрутить — карточки ниже подскажут, что и где.</string>
