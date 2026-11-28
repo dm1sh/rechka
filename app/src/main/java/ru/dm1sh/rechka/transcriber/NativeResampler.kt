@@ -2,15 +2,15 @@ package ru.dm1sh.rechka.transcriber
 
 import java.nio.ByteBuffer
 
-internal class NativeResampler(sampleRate: Int, channels: Int) : AutoCloseable {
+internal class NativeResampler(sampleRate: Int, channels: Int) : PcmResampler {
     private var handle = nativeCreate(sampleRate, channels)
 
-    fun process(input: ByteBuffer, byteCount: Int): ShortArray {
+    override fun process(input: ByteBuffer, byteCount: Int): ShortArray {
         check(handle != 0L) { "Native resampler is closed" }
         return nativeProcess(handle, input, byteCount)
     }
 
-    fun flush(): ShortArray {
+    override fun flush(): ShortArray {
         if (handle == 0L) return ShortArray(0)
         return nativeFlush(handle)
     }

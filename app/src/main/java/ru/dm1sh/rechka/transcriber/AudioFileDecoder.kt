@@ -1,16 +1,19 @@
 package ru.dm1sh.rechka.transcriber
 
 import android.content.Context
+import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
-import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /** Streams a media file's first audio track as 16 kHz mono 16-bit PCM. */
 object AudioFileDecoder {
     private const val PROGRESS_INTERVAL_US = 250_000L
+    private const val END_OF_STREAM_TIMEOUT_NS = 30_000_000_000L
 
     suspend fun decodeStreaming(
         context: Context,
@@ -35,8 +38,6 @@ object AudioFileDecoder {
 
             val format = extractor.getTrackFormat(track)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: error("Unknown audio format")
-            val sourceRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val sourceChannels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
                 format.getLong(MediaFormat.KEY_DURATION)
             } else 0L
@@ -46,12 +47,14 @@ object AudioFileDecoder {
             codec.configure(format, null, null, 0)
             codec.start()
             val info = MediaCodec.BufferInfo()
-            val converter = PcmStreamConverter(sourceRate, sourceChannels, onPcm)
+            val converter = PcmStreamConverter(onPcm)
             var inputDone = false
             var outputDone = false
             var lastProgressUs = Long.MIN_VALUE
+            var eosWaitStartedNs: Long? = null
             try {
                 while (!outputDone) {
+                    currentCoroutineContext().ensureActive()
                     if (!inputDone) {
                         val inputIndex = codec.dequeueInputBuffer(10_000)
                         if (inputIndex >= 0) {
@@ -69,21 +72,47 @@ object AudioFileDecoder {
                     }
 
                     when (val outputIndex = codec.dequeueOutputBuffer(info, 10_000)) {
-                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
-                        MediaCodec.INFO_TRY_AGAIN_LATER -> if (inputDone) outputDone = true
-                        else -> if (outputIndex >= 0) {
-                            if (info.size > 0) {
-                                val output = codec.getOutputBuffer(outputIndex)!!
-                                output.position(info.offset)
-                                output.limit(info.offset + info.size)
-                                converter.accept(output.slice().order(ByteOrder.LITTLE_ENDIAN))
-                                val positionUs = info.presentationTimeUs.coerceAtLeast(0L)
-                                if (lastProgressUs == Long.MIN_VALUE || positionUs - lastProgressUs >= PROGRESS_INTERVAL_US) {
-                                    onProgress(positionUs, durationUs)
-                                    lastProgressUs = positionUs
-                                }
+                        // Each buffer's own format is read below, including after changes.
+                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> eosWaitStartedNs = null
+                        MediaCodec.INFO_TRY_AGAIN_LATER -> if (inputDone) {
+                            // Queued input EOS does not mean the decoder has emitted all PCM.
+                            val now = System.nanoTime()
+                            val started = eosWaitStartedNs ?: now.also { eosWaitStartedNs = it }
+                            check(now - started < END_OF_STREAM_TIMEOUT_NS) {
+                                "Audio decoder did not signal end of stream"
                             }
-                            codec.releaseOutputBuffer(outputIndex, false)
+                        }
+                        else -> if (outputIndex >= 0) {
+                            eosWaitStartedNs = null
+                            try {
+                                if (info.size > 0) {
+                                    // Encoded and decoded formats can differ: HE-AAC SBR,
+                                    // for example, can double the rate and/or channel count.
+                                    val outputFormat = codec.getOutputFormat(outputIndex)
+                                    val encoding = outputFormat.getInteger(
+                                        MediaFormat.KEY_PCM_ENCODING,
+                                        AudioFormat.ENCODING_PCM_16BIT,
+                                    )
+                                    check(encoding == AudioFormat.ENCODING_PCM_16BIT) {
+                                        "Unsupported decoded PCM encoding: $encoding"
+                                    }
+                                    val decodedFormat = DecodedPcmFormat(
+                                        sampleRate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE),
+                                        channels = outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT),
+                                    )
+                                    val output = codec.getOutputBuffer(outputIndex)!!
+                                    output.position(info.offset)
+                                    output.limit(info.offset + info.size)
+                                    converter.accept(output.slice().order(ByteOrder.nativeOrder()), decodedFormat)
+                                    val positionUs = info.presentationTimeUs.coerceAtLeast(0L)
+                                    if (lastProgressUs == Long.MIN_VALUE || positionUs - lastProgressUs >= PROGRESS_INTERVAL_US) {
+                                        onProgress(positionUs, durationUs)
+                                        lastProgressUs = positionUs
+                                    }
+                                }
+                            } finally {
+                                codec.releaseOutputBuffer(outputIndex, false)
+                            }
                             if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
                         }
                     }
@@ -98,25 +127,5 @@ object AudioFileDecoder {
         } finally {
             extractor.release()
         }
-    }
-
-    private class PcmStreamConverter(
-        sourceRate: Int,
-        channels: Int,
-        private val emit: suspend (ShortArray) -> Unit,
-    ) : AutoCloseable {
-        private val native = NativeResampler(sourceRate, channels)
-
-        suspend fun accept(bytes: ByteBuffer) {
-            val output = native.process(bytes, bytes.remaining())
-            if (output.isNotEmpty()) emit(output)
-        }
-
-        suspend fun finish() {
-            val output = native.flush()
-            if (output.isNotEmpty()) emit(output)
-        }
-
-        override fun close() = native.close()
     }
 }
