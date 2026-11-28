@@ -76,7 +76,7 @@
     <string name="onb_model_retry">Повторить установку модели</string>
     <string name="onb_model_outdated">Для этой версии нужна GigaAM v4. Выберите папку с новыми файлами ниже или установите поверх полный APK. Старая модель сохраняется до успешной установки новой.</string>
     <string name="onb_welcome_title">Говорите свободно</string>
-    <string name="onb_welcome_body">Превращаю речь в текст. Без интернета, без аккаунтов.</string>
+    <string name="onb_welcome_body">Превращаю русскую и английскую речь в текст. Без интернета, без аккаунтов.</string>
     <string name="onb_welcome_note">Пара коротких шагов — и поехали.</string>
 
     <!-- Onboarding: accessibility service -->
@@ -211,7 +211,7 @@
     <string name="main_share_card_title">Расскажите о приложении</string>
     <string name="main_share_card_body">Порекомендуйте друзьям и коллегам</string>
     <string name="main_share_chooser">Порекомендовать Речку</string>
-    <string name="main_share_app_text">Речка: голос в текст. Голосовой ввод на русском без интернета.\nhttps://github.com/dm1sh/rechka</string>
+    <string name="main_share_app_text">Речка: голос в текст. Голосовой ввод на русском и английском без интернета.\nhttps://github.com/dm1sh/rechka</string>
 
     <!-- Benchmark card on main screen -->
     <string name="main_benchmark_card_title">Тест скорости</string>
@@ -277,7 +277,7 @@
     <!-- About screen -->
     <string name="about_title">О программе</string>
     <string name="about_app_name">Речка</string>
-    <string name="about_tagline">Офлайн голосовой ввод на русском</string>
+    <string name="about_tagline">Офлайн-распознавание русской и английской речи</string>
     <string name="about_version_fmt">Версия %1$s</string>
 
     <!-- About: how it works (info rows) -->

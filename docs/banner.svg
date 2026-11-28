@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-label="Речка — голосовой ввод на русском без интернета">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-label="Речка — голосовой ввод на русском и английском без интернета">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#F5F5F7"/>
@@ -25,7 +25,7 @@
     <text x="470" y="180" font-size="82" font-weight="800" letter-spacing="-2" fill="#14141A">Речка</text>
 
     <!-- Subtitle -->
-    <text x="472" y="232" font-size="26" fill="#4A4A52">Голосовой ввод на русском без интернета</text>
+    <text x="472" y="232" font-size="26" fill="#4A4A52">Русская и английская речь без интернета</text>
 
     <!-- Pill badges -->
     <g transform="translate(470 280)" font-size="15" fill="#4A4A52">

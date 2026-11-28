@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="Речка — голосовой ввод на русском без интернета" width="100%">
+  <img src="docs/banner.svg" alt="Речка — голосовой ввод на русском и английском без интернета" width="100%">
 </p>
 
 # Речка
