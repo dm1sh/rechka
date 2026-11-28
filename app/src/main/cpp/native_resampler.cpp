@@ -56,7 +56,10 @@ static jshortArray convert(JNIEnv* env, Resampler* r, const uint8_t* input,
     std::vector<int16_t> output(static_cast<size_t>(max_output));
     const uint8_t* in[] = { input };
     uint8_t* out[] = { reinterpret_cast<uint8_t*>(output.data()) };
-    const int produced = swr_convert(r->context, out, max_output, in, input_samples);
+    // A null input pointer (not an array containing a null pointer) tells
+    // libswresample to flush its delayed samples.
+    const int produced = swr_convert(r->context, out, max_output,
+                                     flush ? nullptr : in, input_samples);
     if (produced < 0) {
         throwIllegalState(env, "Native audio conversion failed");
         return nullptr;
